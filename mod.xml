@@ -1,0 +1,16 @@
+<Mod
+	name="Wand DBG"
+	description="Wand debugger for learning how to build wands"
+	request_no_api_restrictions="0"
+>
+</Mod>
+
+ <!--
+     TODO:
+     animation
+     projectile list, with modifiers and stats, triggers
+     lifetime solver
+     wand spawner/saver, support unique wands
+     wand crafting gui
+     extra perk effects
+ -->

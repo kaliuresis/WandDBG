@@ -1,0 +1,29 @@
+<Entity name="debug_card">
+  <InheritTransformComponent>
+    <Transform position.x="0" position.y="0"></Transform>
+  </InheritTransformComponent>
+
+  <VelocityComponent _tags="enabled_in_world" >
+  </VelocityComponent>
+
+  <VariableStorageComponent
+      name="x_target"
+      value_float="0" >
+  </VariableStorageComponent>
+
+  <VariableStorageComponent
+      name="y_target"
+      value_float="0" >
+  </VariableStorageComponent>
+
+  <VariableStorageComponent
+      name="omega"
+      value_float="0" >
+  </VariableStorageComponent>
+
+  <LuaComponent
+      script_source_file="mods/wand_dbg/files/move_card.lua"
+      execute_every_n_frame="1"
+      >
+  </LuaComponent>
+</Entity>
