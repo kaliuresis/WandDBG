@@ -8,7 +8,7 @@ function init_debugger(gui)
     local action_stack = {}
 
     local action_trees = {}
-    local current_action_node = nil
+    local current_node = nil
     local current_explanation = ""
 
     local base_actions = {}
@@ -212,12 +212,14 @@ function init_debugger(gui)
         end
         draw_total = how_many
         draw_current = 0
-        current_node.draw = how_many
-        if(dont_draw_actions) then
-            current_node.dont_draw_actions = true
-        end
-        if(playing_permanent_card) then
-            current_node.playing_permanent_card = true
+        if(current_node ~= nil) then
+            current_node.draw = how_many
+            if(dont_draw_actions) then
+                current_node.dont_draw_actions = true
+            end
+            if(playing_permanent_card) then
+                current_node.playing_permanent_card = true
+            end
         end
         original_draw_actions(how_many, instant_reload_if_empty)
     end
@@ -249,6 +251,7 @@ function init_debugger(gui)
 
         cast_history = {}
         action_stack = {}
+        action_trees = {}
         base_actions = {}
         base_action = true
 

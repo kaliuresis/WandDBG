@@ -1,15 +1,19 @@
 base_dir = "mods/wand_dbg/"
-dofile_once( base_dir .. "files/debugger.lua" );
-dofile_once( base_dir .. "files/utils.lua" );
+dofile_once(base_dir .. "files/debugger.lua");
+dofile_once(base_dir .. "files/utils.lua");
+dofile_once("data/scripts/lib/utilities.lua");
 
 local gui = GuiCreate()
 
 debug_wand = init_debugger(gui)
 
 local show_wand_dbg = true
-local show_tree = true
+local show_tree = false
+local show_animation = true
+local need_to_remake_cards = false
 
 local current_i = 0
+local current_i_target = nil
 local playing = true
 local playback_timer = 20
 local looping = true
@@ -52,8 +56,15 @@ function complexx(ar, ai, br, bi)
 end
 
 local gui_id = 0
-function next_id()
+gui_ids = {}
+function get_id(name)
+    if(name ~= nil and gui_ids[name] ~= nil) then
+        return gui_ids[name]
+    end
     gui_id = gui_id+1
+    if(name ~= nil) then
+        gui_ids[name] = gui_id
+    end
     return gui_id
 end
 
@@ -141,6 +152,7 @@ function clear_action_sprites()
         end
     end
     action_sprites = {}
+    dying_action_sprites = {}
 end
 
 function add_action_sprite(card)
@@ -334,11 +346,11 @@ function draw_deck(base_x, base_y, cx, cy, gui_to_world_scale, deck, focus_on_en
         -- local x_rel = 16*i
         -- local y_rel = 0
 
-        -- GuiImage(gui, next_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, bg_sprite,
+        -- GuiImage(gui, get_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, bg_sprite,
         --          1.0, scale, 0, 0)
 
         -- im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
-        -- GuiImage(gui, next_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, sprite,
+        -- GuiImage(gui, get_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, sprite,
         --          1.0, scale, 0, 0)
 
         local spacing = 24
@@ -364,7 +376,6 @@ function draw_playback(base_x, base_y, width, mx, my)
     local button_spacing = 4
     local bar_width = width - (4*button_width+4*button_spacing)
 
-    local current_i_target = nil
     if(cast_history == nil) then return current_i_target end
 
     local play_pause = base_dir.."files/ui_gfx/play.png"
@@ -380,17 +391,17 @@ function draw_playback(base_x, base_y, width, mx, my)
 
     local x = base_x+bar_width
     x = x+button_spacing
-    local prev_pressed = GuiImageButton(gui, next_id(), x, base_y-3.5, "", base_dir.."files/ui_gfx/prev.png")
+    local prev_pressed = GuiImageButton(gui, get_id("playback_previous"), x, base_y-3.5, "", base_dir.."files/ui_gfx/prev.png")
     GuiTooltip(gui, "previous", "")
     x = x+button_spacing+button_width
-    local play_pause_pressed = GuiImageButton(gui, next_id(), x, base_y-3.5, "", play_pause)
+    local play_pause_pressed = GuiImageButton(gui, get_id("playback_play"), x, base_y-3.5, "", play_pause)
     GuiTooltip(gui, play_pause_text, "")
     x = x+button_spacing+button_width
-    local next_pressed = GuiImageButton(gui, next_id(), x, base_y-3.5, "", base_dir.."files/ui_gfx/next.png")
+    local next_pressed = GuiImageButton(gui, get_id("playback_next"), x, base_y-3.5, "", base_dir.."files/ui_gfx/next.png")
     GuiTooltip(gui, "next", "")
     x = x+button_spacing+button_width
     if(not looping) then GuiColorSetForNextWidget( gui, 0.5, 0.5, 0.5, 0.5) end
-    local loop_pressed = GuiImageButton(gui, next_id(), x, base_y-3.5, "", base_dir.."files/ui_gfx/loop.png")
+    local loop_pressed = GuiImageButton(gui, get_id("playback_loop"), x, base_y-3.5, "", base_dir.."files/ui_gfx/loop.png")
     GuiTooltip(gui, loop_text, "")
 
     if(play_pause_pressed) then
@@ -431,12 +442,12 @@ function draw_playback(base_x, base_y, width, mx, my)
     draw_line(base_x, base_y,
               base_x+bar_width, base_y,
               1.0, 1.0, 0)
-    GuiImage(gui, next_id(), base_x+bar_width*(current_i-1)/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png",
+    GuiImage(gui, get_id("playback_indicator"), base_x+bar_width*(current_i-1)/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png",
              1, 1)
     if(ui_hover) then
-        local clicked = GuiImageButton(gui, next_id(), base_x+bar_width*mouse_t/#cast_history-50.5, base_y-50.5, "", base_dir.."files/ui_gfx/invisible_button.png")
+        local clicked = GuiImageButton(gui, get_id("playback_click_blocker"), base_x+bar_width*mouse_t/#cast_history-50.5, base_y-50.5, "", base_dir.."files/ui_gfx/invisible_button.png")
         GuiText(gui, base_x+bar_width*mouse_t/#cast_history, base_y, math.ceil(mouse_t).."/"..#cast_history)
-        GuiImage(gui, next_id(), base_x+bar_width*mouse_t/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png", 0.5, 1)
+        GuiImage(gui, get_id("playback_hover_indicator"), base_x+bar_width*mouse_t/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png", 0.5, 1)
        if(clicked) then
            current_i_target = math.ceil(mouse_t)
        end
@@ -444,7 +455,7 @@ function draw_playback(base_x, base_y, width, mx, my)
     if #cast_history < bar_width then
         for i, e in ipairs(cast_history) do
             if(e.type == "action") then
-                GuiImage(gui, next_id(), base_x+bar_width*i/#cast_history-1.5, base_y-1.5, base_dir.."files/ui_gfx/small_dot.png",
+                GuiImage(gui, get_id(), base_x+bar_width*i/#cast_history-1.5, base_y-1.5, base_dir.."files/ui_gfx/small_dot.png",
                          1, 1)
             end
         end
@@ -466,11 +477,11 @@ function draw_playback(base_x, base_y, width, mx, my)
 
     --         local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
 
-    --         GuiImage(gui, next_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, bg_sprite,
+    --         GuiImage(gui, get_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, bg_sprite,
     --                  1.0, scale, 0, 0)
 
     --         im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
-    --         GuiImage(gui, next_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, sprite,
+    --         GuiImage(gui, get_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, sprite,
     --                  1.0, scale, 0, 0)
     --         last_x_rel = x_rel
     --         last_y_rel = y_rel
@@ -483,14 +494,14 @@ function draw_playback(base_x, base_y, width, mx, my)
     return current_i_target
 end
 
-function compress_node(tree)
+function process_node(tree)
     tree.str = "(" .. tree.action.id
     local previous_child_string = nil
-    for i, c in ipairs(children) do
+    for i, c in ipairs(tree.children) do
         if(c.str == nil) then
-            compress_node(c)
+            process_node(c)
         end
-        if(i != 0) then
+        if(i ~= 0) then
             tree.str = tree.str .. " "
         end
         tree.str = tree.str .. c.str
@@ -500,138 +511,110 @@ function compress_node(tree)
     tree.str = tree.str..")"
 end
 
+function draw_ellipses(number_identical, width, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
+    -- if(parent_x ~= nil and parent_y ~= nil) then
+    --     local start_x = parent_x+8*scale
+    --     local start_y = parent_y
+    --     local end_x = x-8*scale
+    --     local end_y = y
+    --     draw_spline(start_x, start_y, start_x+0.5*x_spacing, start_y,
+    --                 end_x-0.5*x_spacing, end_y, end_x, end_y,
+    --                 0.5, 1.0, 0, 4, 1)
+    -- end
+
+    x = x-8*scale
+    y = y-4*scale
+    draw_spline(x, y, x, y+4,
+                x+0.5*width, y, x+0.5*width, y+4,
+                0.5, 1.0, 0)
+    draw_spline(x+width, y, x+width, y+4,
+                x+0.5*width, y, x+0.5*width, y+4,
+                0.5, 1.0, 0)
+    GuiTextCentered(gui, x+0.5*width, y+4,"x" .. number_identical)
+    height = 2*y_spacing
+    return width, height
+end
+
 function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
+    local sprite = tree.action.sprite
+    local bg_sprite = get_bg_sprite(tree.action.type)
     local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
-    GuiImage(gui, next_id(), x-im_w/2, y-im_h/2, bg_sprite,
+    GuiImage(gui, get_id("node_background"..tostring(tree)), x-im_w/2, y-im_h/2, bg_sprite,
              1.0, scale, 0, 0)
 
     im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
-    GuiImage(gui, next_id(), x-im_w/2, y-im_h/2, sprite,
+    GuiImage(gui, get_id("node_foreground"..tostring(tree)), x-im_w/2, y-im_h/2, sprite,
              1.0, scale, 0, 0)
 
     if(parent_x ~= nil and parent_y ~= nil) then
-        local start_x = parent_x+8*base_scale
+        local start_x = parent_x+8*scale
         local start_y = parent_y
-        local end_x = x-8*base_scale
+        local end_x = x-8*scale
         local end_y = y
         draw_spline(start_x, start_y, start_x+0.5*x_spacing, start_y,
                     end_x-0.5*x_spacing, end_y, end_x, end_y,
                     0.5, 1.0, 0, 4, 1)
     end
 
+    local width = x_spacing
     local height = 0
-    local drawn_ellipses = false
+    local max_child_width = 0
+    local previous_width = 0
+    local number_identical = 1
     for i, c in ipairs(tree.children) do
         local child_x = x+x_spacing
         local child_y = y+height
         if(c.identical_to_previous) then
-            if(not drawn_ellipses) then
-                --TODO: make this vertical
-                GuiText(gui, child_x, child_y,'...')
-                height = height + y_spacing
-            end
-            drawn_ellipses = true
+            number_identical = number_identical + 1
         else
-            local child_height = draw_node(c, x_spacing, y_spacing, scale, child_x, child_y, x, y)
+            if(number_identical > 1) then
+                local ellipses_width, ellipses_height = draw_ellipses(number_identical, previous_width, x_spacing, y_spacing, scale, child_x, child_y, x, y)
+                height = height + ellipses_height
+                child_y = y+height
+            end
+            number_identical = 1
+            local child_width, child_height = draw_node(c, x_spacing, y_spacing, scale, child_x, child_y, x, y)
+            if(child_width > max_child_width) then
+                max_child_width = child_width
+            end
+            previous_width = child_width
             height = height+child_height
-            drawn_ellipses = false
         end
     end
+    if(number_identical > 1) then
+        local child_x = x+x_spacing
+        local child_y = y+height
+        local ellipses_width, ellipses_height = draw_ellipses(number_identical, previous_width, x_spacing, y_spacing, scale, child_x, child_y, x, y)
+        height = height + ellipses_height
+    end
+    width = width+max_child_width
     if(#tree.children == 0) then
+        width = 8
         height = y_spacing
     end
-    return height
+    return width, height
 end
 
-function draw_tree(tree)
-    local base_x = 20
-    local base_y = 50
-    sub_action_count = {}
-    for j, base_action in ipairs(base_actions) do
-        sub_action_count[j] = 0
-    end
+function draw_trees()
+    local base_x = 8
+    local base_y = 8
+
     local x_spacing = 24
     local y_spacing = 8
 
-    local last_x_rel = 0
-    local last_y_rel = 0
-    local last_indent_offset = 0
+    local scale = 0.5
 
-    local base_scale = 0.5
-    local scale = base_scale
+    local x = base_x
+    local y = base_y
 
-    local current_i_found = false
-    local current_i_target = current_i
-    local first_action = true
-    local stack_positions = {}
-    for i, e in ipairs(cast_history) do
-        if(e.type == "action") then
-            local action = e.action_stack[#e.action_stack]
-            local sprite = action.action.sprite
-            local bg_sprite = get_bg_sprite(action.action.type)
-            local j = action.base_index
-            if(e.info.base_action) then
-                sub_action_count[j] = 0
-                -- elseif(recursion_level) then
-            else
-                sub_action_count[j] = sub_action_count[j]+1
-            end
-            -- local x_rel = x_spacing*(j-1)
-            -- local y_rel = y_spacing*sub_action_count[j]
-            -- local indent_offset = 4*(1+(e.info.recursion_level or 0) + (e.info.iteration or 0))
-            local x_rel = x_spacing*#e.action_stack
-            local y_rel = last_y_rel
-            if(x_rel <= last_x_rel) then
-                y_rel = y_rel + y_spacing
-            end
-            stack_positions[#e.action_stack] = {x = x_rel, y = y_rel}
-            local indent_offset = 0
-
-            -- GameCreateSpriteForXFrames(bg_sprite, base_x+x_rel+indent_offset, base_y+y_rel)
-            -- GameCreateSpriteForXFrames(sprite, base_x+x_rel+indent_offset, base_y+y_rel)
-            local button_width = y_spacing
-            -- local ui_hover = (math.abs(mx-(base_x+x_rel+indent_offset)) <= button_width/2
-            --                       and math.abs(my-(base_y+y_rel)) <= button_width/2)
-            -- if((current_i <= i and (not current_i_found))
-            --     or ui_hover) then
-            --     if(ui_hover) then current_i_target = i end
-            --     current_i_found = true
-            --     scale = base_scale*1.5
-            -- else
-            --     scale = base_scale
-            -- end
-
-            local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
-
-            GuiImage(gui, next_id(), base_x+x_rel+indent_offset-im_w/2, base_y+y_rel-im_h/2, bg_sprite,
-                     1.0, scale, 0, 0)
-
-            im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
-            GuiImage(gui, next_id(), base_x+x_rel+indent_offset-im_w/2, base_y+y_rel-im_h/2, sprite,
-                     1.0, scale, 0, 0)
-            -- if(not first_action and last_x_rel ~= x_rel) then
-            --     draw_line(base_x+last_x_rel+last_indent_offset+8*base_scale, base_y+last_y_rel,
-            --               base_x+x_rel+indent_offset-8*base_scale, base_y+y_rel,
-            --               0.5, 1.0, 0, 4)
-            -- end
-            if(stack_positions[#e.action_stack-1] ~= nil) then
-                local start_x = base_x+stack_positions[#e.action_stack-1].x+8*base_scale
-                local start_y = base_y+stack_positions[#e.action_stack-1].y
-                local end_x = base_x+x_rel-8*base_scale
-                local end_y = base_y+y_rel
-                draw_spline(start_x, start_y, start_x+0.5*x_spacing, start_y,
-                            end_x-0.5*x_spacing, end_y, end_x, end_y,
-                            0.5, 1.0, 0, 4, 1)
-            end
-
-            last_x_rel = x_rel
-            last_y_rel = y_rel
-            last_indent_offset = indent_offset
-            first_action = false
-        elseif(e.type == "cast_done") then
-            first_action = true
-        end
+    for i, t in ipairs(action_trees) do
+        local width, height = draw_node(t, x_spacing, y_spacing, scale, x, y)
+        y = y + height
     end
+
+    --invisible dot for bottom margin
+    local dot_sprite = base_dir .. "files/ui_gfx/line_dot.png"
+    GuiImage(gui, get_id(), x, y, dot_sprite, 0.0, 1, 0, 0)
 
     return current_i_target
 end
@@ -650,7 +633,7 @@ function draw_line(x1, y1, x2, y2, thickness, alpha, end_spacing, arrow_size, ar
     dy = dy/length
     local rotation = math.atan2(-dx, dy)
     local x_off, y_off = complexx(-0.5*thickness, 0.5*thickness, dx, dy)
-    GuiImage(gui, next_id(), x1+dx*end_spacing+x_off, y1+dy*end_spacing+y_off, sprite,
+    GuiImage(gui, get_id(), x1+dx*end_spacing+x_off, y1+dy*end_spacing+y_off, sprite,
              alpha, thickness, length-2*end_spacing, rotation)
 
     if(arrow_size) then
@@ -684,7 +667,6 @@ function draw_spline(x0, y0, x1, y1, x2, y2, x3, y3, thickness, alpha, end_spaci
     end
 end
 
-
 function get_deck(deck_name)
     if(deck_name == "discarded") then
         return discarded
@@ -696,7 +678,6 @@ function get_deck(deck_name)
 end
 
 function set_history(current_i_target)
-    old_i = current_i
     reset_cast_except_action_sprites()
 
     if(current_i_target <= 1) then
@@ -871,6 +852,7 @@ end
 
 function reset_cast()
     clear_action_sprites()
+    current_action_stack = nil
     reset_cast_except_action_sprites()
 end
 
@@ -908,6 +890,7 @@ function OnWorldPostUpdate()
     end
 
     GuiStartFrame(gui)
+    GuiOptionsAdd(gui, GUI_OPTION.NoPositionTween);
     gui_id = 0
 
     local mx, my = DEBUG_GetMouseWorld()
@@ -924,13 +907,13 @@ function OnWorldPostUpdate()
     mx = (mx-cx)*gw/cw+0.5
     my = (my-cy)*gh/ch+0.5
 
-    local dot_sprite = base_dir .. "files/ui_gfx/line_dot.png"
-    GuiImage(gui, next_id(), mx, my, dot_sprite,
-             1.0, 1, 0, 0)
+    -- local dot_sprite = base_dir .. "files/ui_gfx/line_dot.png"
+    -- GuiImage(gui, get_id(), mx, my, dot_sprite,
+             -- 1.0, 1, 0, 0)
 
     local wand_changed = false
 
-    local open_pressed = GuiImageButton(gui, next_id(), gw-16, gh-16, "", base_dir.."files/ui_gfx/icon.png")
+    local open_pressed = GuiImageButton(gui, get_id("icon"), gw-16, gh-16, "", base_dir.."files/ui_gfx/icon.png")
     local open_tooltip = "Show Wand DBG"
     if(show_wand_dbg) then
         open_tooltip = "Hide Wand DBG"
@@ -946,7 +929,17 @@ function OnWorldPostUpdate()
         return
     end
 
-    local open_tree_pressed = GuiImageButton(gui, next_id(), gw-16-32, gh-16, "", base_dir.."files/ui_gfx/icon.png")
+    local open_animation_pressed = GuiImageButton(gui, get_id("animation_icon"), gw-16-16, gh-16, "", base_dir.."files/ui_gfx/animation_icon.png")
+    local open_animation_tooltip = "Show Deck Animation"
+    if(show_animation) then
+        open_animation_tooltip = "Hide Deck Animation"
+    end
+    GuiTooltip(gui, open_animation_tooltip, "")
+    if(open_animation_pressed) then
+        show_animation = not show_animation
+    end
+
+    local open_tree_pressed = GuiImageButton(gui, get_id("tree_icon"), gw-16-32, gh-16, "", base_dir.."files/ui_gfx/tree_icon.png")
     local open_tree_tooltip = "Show Flowchart"
     if(show_tree) then
         open_tree_tooltip = "Hide Flowchart"
@@ -1005,6 +998,9 @@ function OnWorldPostUpdate()
 
             local start_deck_actions
             cast_history, base_actions, action_trees, start_deck_actions, always_casts = debug_wand(wand_deck, wand_stats)
+            for i, t in ipairs(action_trees) do
+                process_node(t)
+            end
             always_cast_cards = {}
             start_deck = {}
             if(cast_history ~= nil) then GamePrint("#cast_history = " .. #cast_history) end
@@ -1013,102 +1009,115 @@ function OnWorldPostUpdate()
             end
 
             reset_cast()
+            current_i_target = nil
         end
         if(cast_history ~= nil and base_actions ~= nil and start_deck ~= nil) then
-            if(wand_changed or card_sprites == nil or #card_sprites ~= #start_deck) then
-                clear_card_sprites()
-                card_sprites = {}
-                for i, card in ipairs(start_deck) do
-                    card.sprite = add_sprite(card)
-                    table.insert(card_sprites, card.sprite)
-                end
-            end
-
-            local current_i_target = draw_playback(10, gh*0.9, gw-20, mx, my)
-            local current_i_target_set = false
-            if(current_i_target == nil) then
-                current_i_target = current_i
-            else
-                current_i_target_set = true
-            end
-
-            if(current_i_target ~= current_i) then
-                set_history(current_i_target)
-            end
-            if(current_i > #cast_history) then
-                reset_cast()
-            end
-
-            if(cast_history ~= nil) then
-                if(current_i > #cast_history or current_i < 1) then current_i = 1 end
-                -- discarded = cast_history[current_i].discarded
-                -- hand = cast_history[current_i].hand
-                -- deck = cast_history[current_i].deck
-
-                local base_x = 32
-                local base_y = gh*0.8
-
-                GuiText(gui, base_x, base_y-40,'discarded:')
-                draw_deck(base_x, base_y, cx, cy, cw/gw, discarded)
-                base_x = base_x+16*13
-                -- base_y = base_y+32
-
-                GuiText(gui, base_x, base_y-40,'hand:')
-                draw_deck(base_x, base_y, cx, cy, cw/gw, hand)
-                base_x = base_x+16*13
-                -- base_y = base_y+32
-
-                GuiText(gui, base_x, base_y-40,'deck:')
-                draw_deck(base_x, base_y, cx, cy, cw/gw, deck, false)
-            end
-
-            if(current_action_stack ~= nil and #current_action_stack > 0) then
-                for i, a in ipairs(action_sprites) do
-                    -- local a = action_sprites[i]
-                    a.x_target = 10+32*i
-                    a.y_target = gh*0.6
-
-                    local action = current_action_stack[i]
-                    if(action.draw_how_many == nil) then
-                        a.line1 = ""
-                        a.line2 = ""
-                    elseif(action.draw_how_many == -1) then
-                        a.line1 = "can't draw"
-                        a.line2 = ""
-                    elseif(action.draw_how_many >= 1) then
-                        a.line1 = "draw"
-                        a.line2 = action.draw_step.."/"..action.draw_how_many
-                        if(action.draw_step == 0) then
-                            a.line2 = "1/"..action.draw_how_many
-                        end
+            if(show_animation) then
+                if(need_to_remake_cards or wand_changed or card_sprites == nil or #card_sprites ~= #start_deck) then
+                    clear_card_sprites()
+                    card_sprites = {}
+                    for i, card in ipairs(start_deck) do
+                        card.sprite = add_sprite(card)
+                        table.insert(card_sprites, card.sprite)
                     end
-
-                    animate_card(a, a.sprite, cx, cy, cw/gw)
                 end
-            end
 
-            for i=#dying_action_sprites,1,-1 do
-                local alive = animate_dying_card(dying_action_sprites[i], dying_action_sprites[i].sprite, cx, cy, cw/gw)
-                if(not alive) then
-                    table.remove(dying_action_sprites, i)
+                current_i_target = draw_playback(10, gh*0.9, gw-20, mx, my)
+                if(current_i_target == nil) then
+                    current_i_target = current_i
                 end
-            end
+                if(current_i_target ~= current_i) then
+                    set_history(current_i_target)
+                end
+                if(current_i > #cast_history) then
+                    reset_cast()
+                end
 
-            if(not looping and current_i == #cast_history) then
-                playing = false
-            end
-            if(playing) then
-                playback_timer = playback_timer-1
+                current_i_target = nil
+
+                if(cast_history ~= nil) then
+                    if(current_i > #cast_history or current_i < 1) then current_i = 1 end
+                    -- discarded = cast_history[current_i].discarded
+                    -- hand = cast_history[current_i].hand
+                    -- deck = cast_history[current_i].deck
+
+                    local base_x = 32
+                    local base_y = gh*0.8
+
+                    GuiText(gui, base_x, base_y-40,'discarded:')
+                    draw_deck(base_x, base_y, cx, cy, cw/gw, discarded)
+                    base_x = base_x+16*13
+                    -- base_y = base_y+32
+
+                    GuiText(gui, base_x, base_y-40,'hand:')
+                    draw_deck(base_x, base_y, cx, cy, cw/gw, hand)
+                    base_x = base_x+16*13
+                    -- base_y = base_y+32
+
+                    GuiText(gui, base_x, base_y-40,'deck:')
+                    draw_deck(base_x, base_y, cx, cy, cw/gw, deck, false)
+                end
+
+                if(current_action_stack ~= nil and #current_action_stack > 0) then
+                    for i, a in ipairs(action_sprites) do
+                        a.x_target = 10+32*i
+                        a.y_target = gh*0.6
+
+                        local action = current_action_stack[i]
+                        if(action.draw_how_many == nil) then
+                            a.line1 = ""
+                            a.line2 = ""
+                        elseif(action.draw_how_many == -1) then
+                            a.line1 = "can't draw"
+                            a.line2 = ""
+                        elseif(action.draw_how_many >= 1) then
+                            a.line1 = "draw"
+                            a.line2 = action.draw_step.."/"..action.draw_how_many
+                            if(action.draw_step == 0) then
+                                a.line2 = "1/"..action.draw_how_many
+                            end
+                        end
+
+                        animate_card(a, a.sprite, cx, cy, cw/gw)
+                    end
+                end
+
+                for i=#dying_action_sprites,1,-1 do
+                    local alive = animate_dying_card(dying_action_sprites[i], dying_action_sprites[i].sprite, cx, cy, cw/gw)
+                    if(not alive) then
+                        table.remove(dying_action_sprites, i)
+                    end
+                end
+
+                if(not looping and current_i == #cast_history) then
+                    playing = false
+                end
+                if(playing) then
+                    playback_timer = playback_timer-1
+                else
+                    playback_timer = 1
+                end
+                if(playback_timer <= 0) then
+                    step_history(1)
+                    playback_timer = playback_wait
+                end
+
+                need_to_remake_cards = false
             else
-                playback_timer = 1
-            end
-            if(playback_timer <= 0) then
-                step_history(1)
-                playback_timer = playback_wait
+                if(not need_to_remake_cards) then
+                    clear_card_sprites()
+                    current_i_target = current_i
+                    reset_cast()
+                    need_to_remake_cards = true
+                end
             end
 
             if(show_tree) then
-                draw_tree()
+                local base_x = 20
+                local base_y = 50
+                GuiBeginScrollContainer(gui, get_id("tree_scrollbox"), base_x, base_y, 500, 200)
+                draw_trees()
+                GuiEndScrollContainer(gui)
             end
 
             -- for i, e in ipairs(cast_history) do
