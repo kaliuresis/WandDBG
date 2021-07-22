@@ -1,7 +1,9 @@
 base_dir = "mods/wand_dbg/"
+mod_name = "wand_dbg"
+dofile_once("data/scripts/lib/utilities.lua");
 dofile_once(base_dir .. "files/debugger.lua");
 dofile_once(base_dir .. "files/utils.lua");
-dofile_once("data/scripts/lib/utilities.lua");
+dofile_once(base_dir .. "files/ui.lua");
 
 local gui = GuiCreate()
 
@@ -9,8 +11,10 @@ debug_wand = init_debugger(gui)
 
 local show_wand_dbg = true
 local show_tree = false
-local show_animation = true
+local show_animation = false
 local need_to_remake_cards = false
+
+local tree_window = make_window("tree_window", 20, 50, 500, 200)
 
 local current_i = 0
 local current_i_target = nil
@@ -19,14 +23,11 @@ local playback_timer = 20
 local looping = true
 
 local last_wand_deck
-local cast_history, base_actions, action_trees, start_deck, always_casts, always_cast_cards
-
-local current_action_stack
+local cast_history, action_trees, start_deck, always_casts, always_cast_cards
 
 local discarded = {}
 local hand = {}
 local deck = {}
-
 
 -- debug_wand = dofile_once( "mods/wand_dbg/files/debugger.lua" );
 
@@ -37,35 +38,6 @@ end
 local _ModTextFileGetContent = ModTextFileGetContent;
 function OnWorldPreUpdate()
     -- dofile( "mods/spell_lab/files/gui/update.lua" );
-end
-
-function lerp(a, b, t)
-    return a*(1-t)+b*t
-end
-
-function cubic_bezier(a,b,c,t)
-    return lerp(lerp(a,b,t), lerp(b,c,t), t)
-end
-
-function bezier(a,b,c,d,t)
-    return lerp(cubic_bezier(a,b,c,t), cubic_bezier(b,c,d,t), t)
-end
-
-function complexx(ar, ai, br, bi)
-    return ar*br-ai*bi, ar*bi+ai*br
-end
-
-local gui_id = 0
-gui_ids = {}
-function get_id(name)
-    if(name ~= nil and gui_ids[name] ~= nil) then
-        return gui_ids[name]
-    end
-    gui_id = gui_id+1
-    if(name ~= nil) then
-        gui_ids[name] = gui_id
-    end
-    return gui_id
 end
 
 function get_bg_sprite(type)
@@ -93,29 +65,39 @@ end
 
 local player
 
-local card_sprites
 local action_sprites = {}
 local dying_action_sprites = {}
 
 function make_debug_card(action)
-    return {action = action, x = 0, y = 0, theta = 0, scale = 1.0, dx = 0, dy = 0, dtheta = 0, dscale = 0.0, x_target = 0, y_target = 0}
+    card = {action = action, x = 0, y = 0, theta = 0, scale = 1.0, dx = 0, dy = 0, dtheta = 0, dscale = 0.0, x_target = 0, y_target = 0}
+    action.debug_card = card
+    return card
 end
 
-function clear_card_sprites()
+function clear_card_sprites(always_casts_only)
     local children = EntityGetAllChildren(player)
     if children ~= nil then
         for i, c in ipairs(children) do
-            if(EntityHasTag(c, "dbg_card")) then
-                EntityKill(c)
+            if(not always_casts_only) then
+                if(EntityHasTag(c, "dbg_card")) then
+                    EntityKill(c)
+                end
+            else
+                if(EntityHasTag(c, "ac_dbg_card")) then
+                    EntityKill(c)
+                end
             end
         end
     end
 end
 
-function add_sprite(card)
+function add_sprite(card, is_always_cast)
     local bg_sprite = get_bg_sprite(card.action.type)
     local card_sprite = EntityCreateNew("debug_card")
     EntityAddChild(player, card_sprite)
+    if(is_always_cast) then
+        EntityAddTag(card_sprite, "ac_dbg_card")
+    end
     EntityAddTag(card_sprite, "dbg_card")
     -- EntityAddComponent(card_sprite, "VariableStorageComponent",
     --                    {value_int = i})
@@ -155,8 +137,8 @@ function clear_action_sprites()
     dying_action_sprites = {}
 end
 
-function add_action_sprite(card)
-    local bg_sprite = get_bg_sprite(card.action.type)
+function add_action_sprite(action)
+    local bg_sprite = get_bg_sprite(action.type)
     local card_sprite = EntityCreateNew("debug_action")
     EntityAddChild(player, card_sprite)
     EntityAddTag(card_sprite, "dbg_action")
@@ -174,7 +156,7 @@ function add_action_sprite(card)
     --                     z_index="-1.5"})
     EntityAddComponent(card_sprite, "SpriteComponent",
                         {_tags = "enabled_in_world,ui,no_hitbox,",
-                        image_file = card.action.sprite,
+                        image_file = action.sprite,
                         emissive="1",
                         offset_x="8",
                         offset_y="17",
@@ -209,8 +191,9 @@ function add_action_sprite(card)
     return card_sprite
 end
 
-function push_action(action)
-    local new_action_sprite = {sprite=add_action_sprite(action), x = 0, y = 0, theta = 0, scale = 1.0, dx = 0, dy = 0, dtheta = 0, dscale = 0.0, x_target = 0, y_target = 0, line1 = "", line2 = ""}
+function push_action(node)
+    local action = node.action
+    local new_action_sprite = {node = node, sprite=add_action_sprite(action), x = action.debug_card.x or 0, y = action.debug_card.y or 0, theta = 0, scale = 1.0, dx = 0, dy = 0, dtheta = 0, dscale = 0.0, x_target = 0, y_target = 0, line1 = "", line2 = ""}
     table.insert(action_sprites, new_action_sprite)
     return new_action_sprite
 end
@@ -435,11 +418,11 @@ function draw_playback(base_x, base_y, width, mx, my)
     local ui_hover = (math.abs(mx-(base_x+bar_width/2)) <= bar_width/2+button_width/2 and math.abs(my-(base_y)) <= button_width)
 
     --invisible line to block clicks from casting spells
-    draw_line(base_x, base_y,
+    draw_line(gui, base_x, base_y,
               base_x+bar_width, base_y,
               2*button_width, 0.0, 0)
 
-    draw_line(base_x, base_y,
+    draw_line(gui, base_x, base_y,
               base_x+bar_width, base_y,
               1.0, 1.0, 0)
     GuiImage(gui, get_id("playback_indicator"), base_x+bar_width*(current_i-1)/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png",
@@ -461,41 +444,12 @@ function draw_playback(base_x, base_y, width, mx, my)
         end
     end
 
-    --         local action = e.action_stack[#e.action_stack]
-    --         local sprite = action.action.sprite
-    --         local bg_sprite = get_bg_sprite(action.action.type)
-    --         local expansion_width = 10
-    --         x_rel = clamp((2*expansion_width*math.tanh((i-current_i)/expansion_width)+(width*i)/#cast_history), 0, width)
-    --         j = j+1
-
-    --         scale = base_scale*(1+(2/expansion_width)*math.pow(math.cosh((i-current_i)/expansion_width), -2))
-    --         -- if(i == current_i) then
-    --         --     scale = base_scale*1.5
-    --         -- else
-    --         --     scale = base_scale
-    --         -- end
-
-    --         local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
-
-    --         GuiImage(gui, get_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, bg_sprite,
-    --                  1.0, scale, 0, 0)
-
-    --         im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
-    --         GuiImage(gui, get_id(), base_x+x_rel-im_w/2, base_y+y_rel-im_h/2, sprite,
-    --                  1.0, scale, 0, 0)
-    --         last_x_rel = x_rel
-    --         last_y_rel = y_rel
-    --         first_action = false
-    --     elseif(e.type == "cast_done") then
-    --         first_action = true
-    --     end
-    -- end
-
     return current_i_target
 end
 
 function process_node(tree)
-    tree.str = "(" .. tree.action.id
+    local name = tree.action and tree.action.id or "shot_"..tree.cast_number
+    tree.str = "(" .. name
     local previous_child_string = nil
     for i, c in ipairs(tree.children) do
         if(c.str == nil) then
@@ -517,41 +471,51 @@ function draw_ellipses(number_identical, width, x_spacing, y_spacing, scale, x, 
     --     local start_y = parent_y
     --     local end_x = x-8*scale
     --     local end_y = y
-    --     draw_spline(start_x, start_y, start_x+0.5*x_spacing, start_y,
+    --     draw_spline(gui, start_x, start_y, start_x+0.5*x_spacing, start_y,
     --                 end_x-0.5*x_spacing, end_y, end_x, end_y,
     --                 0.5, 1.0, 0, 4, 1)
     -- end
 
     x = x-8*scale
     y = y-4*scale
-    draw_spline(x, y, x, y+4,
+    draw_spline(gui, x, y, x, y+4,
                 x+0.5*width, y, x+0.5*width, y+4,
                 0.5, 1.0, 0)
-    draw_spline(x+width, y, x+width, y+4,
+    draw_spline(gui, x+width, y, x+width, y+4,
                 x+0.5*width, y, x+0.5*width, y+4,
                 0.5, 1.0, 0)
-    GuiTextCentered(gui, x+0.5*width, y+4,"x" .. number_identical)
+    GuiOptionsAddForNextWidget(gui, GUI_OPTION.Align_HorizontalCenter)
+    GuiText(gui, x+0.5*width, y+4,"x" .. number_identical)
     height = 2*y_spacing
     return width, height
 end
 
 function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
-    local sprite = tree.action.sprite
-    local bg_sprite = get_bg_sprite(tree.action.type)
-    local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
-    GuiImage(gui, get_id("node_background"..tostring(tree)), x-im_w/2, y-im_h/2, bg_sprite,
-             1.0, scale, 0, 0)
+    local spline_offset = 0
+    if(tree.action ~= nil) then
+        local sprite = tree.action.sprite
+        local bg_sprite = get_bg_sprite(tree.action.type)
+        local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
+        GuiImage(gui, get_id("node_background"..tostring(tree)), x-im_w/2, y-im_h/2, bg_sprite,
+                 1.0, scale, 0, 0)
 
-    im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
-    GuiImage(gui, get_id("node_foreground"..tostring(tree)), x-im_w/2, y-im_h/2, sprite,
-             1.0, scale, 0, 0)
+        im_w, im_h = GuiGetImageDimensions(gui, sprite, scale)
+        GuiImage(gui, get_id("node_foreground"..tostring(tree)), x-im_w/2, y-im_h/2, sprite,
+                 1.0, scale, 0, 0)
+    else
+        -- GuiOptionsAddForNextWidget(gui, GUI_OPTION.Align_Left)
+        GuiOptionsAddForNextWidget(gui, GUI_OPTION.Align_HorizontalCenter)
+        GuiText(gui, x, y-5, tree.cast_number)
+        local clicked, right_clicked, hovered, text_x, text_y, width, height = GuiGetPreviousWidgetInfo(gui)
+        spline_offset = width/2-3
+    end
 
     if(parent_x ~= nil and parent_y ~= nil) then
         local start_x = parent_x+8*scale
         local start_y = parent_y
         local end_x = x-8*scale
         local end_y = y
-        draw_spline(start_x, start_y, start_x+0.5*x_spacing, start_y,
+        draw_spline(gui, start_x, start_y, start_x+0.5*x_spacing, start_y,
                     end_x-0.5*x_spacing, end_y, end_x, end_y,
                     0.5, 1.0, 0, 4, 1)
     end
@@ -573,7 +537,7 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
                 child_y = y+height
             end
             number_identical = 1
-            local child_width, child_height = draw_node(c, x_spacing, y_spacing, scale, child_x, child_y, x, y)
+            local child_width, child_height = draw_node(c, x_spacing, y_spacing, scale, child_x, child_y, x+spline_offset, y)
             if(child_width > max_child_width) then
                 max_child_width = child_width
             end
@@ -595,76 +559,29 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
     return width, height
 end
 
-function draw_trees()
-    local base_x = 8
-    local base_y = 8
+function draw_trees(base_x, base_y, min_height)
+    base_x = base_x or 0
+    base_y = base_y or 0
 
     local x_spacing = 24
     local y_spacing = 8
 
     local scale = 0.5
 
-    local x = base_x
-    local y = base_y
+    local x = base_x+8
+    local y = base_y+8
 
     for i, t in ipairs(action_trees) do
         local width, height = draw_node(t, x_spacing, y_spacing, scale, x, y)
         y = y + height
+        extend_max_bound(width+8+0.5*x_spacing, y-base_y)
     end
 
     --invisible dot for bottom margin
     local dot_sprite = base_dir .. "files/ui_gfx/line_dot.png"
     GuiImage(gui, get_id(), x, y, dot_sprite, 0.0, 1, 0, 0)
 
-    return current_i_target
-end
-
-function draw_line(x1, y1, x2, y2, thickness, alpha, end_spacing, arrow_size, arrow_pos)
-    thickness = thickness or 1
-    end_spacing = end_spacing or 0
-    arrow_pos = arrow_pos or 0.5
-    alpha = alpha or 0
-    local material_name = "spark_white"
-    local sprite = base_dir .. "files/ui_gfx/line_dot.png"
-    local dx = (x2-x1)
-    local dy = (y2-y1)
-    local length = math.sqrt(dx*dx+dy*dy)
-    dx = dx/length
-    dy = dy/length
-    local rotation = math.atan2(-dx, dy)
-    local x_off, y_off = complexx(-0.5*thickness, 0.5*thickness, dx, dy)
-    GuiImage(gui, get_id(), x1+dx*end_spacing+x_off, y1+dy*end_spacing+y_off, sprite,
-             alpha, thickness, length-2*end_spacing, rotation)
-
-    if(arrow_size) then
-        local x0 = lerp(x1, x2, arrow_pos)+dx*arrow_size/2
-        local y0 = lerp(y1, y2, arrow_pos)+dy*arrow_size/2
-        local xt, yt = complexx(-arrow_size, arrow_size/2, dx,dy)
-        draw_line(x0, y0, x0+xt, y0+yt, thickness, alpha)
-        xt, yt = complexx(-arrow_size, -arrow_size/2, dx,dy)
-        draw_line(x0, y0, x0+xt, y0+yt, thickness, alpha)
-    end
-end
-
-function draw_spline(x0, y0, x1, y1, x2, y2, x3, y3, thickness, alpha, end_spacing, arrow_size, arrow_pos, segment_spacing)
-    segment_spacing = segment_spacing or 0.05
-    arrow_pos = arrow_pos or 0.5
-    local x = x0
-    local y = y0
-    local drew_arrow = false
-    for t = segment_spacing,1+0.5*segment_spacing,segment_spacing do
-        local new_x = bezier(x0, x1, x2, x3, t)
-        local new_y = bezier(y0, y1, y2, y3, t)
-
-        if(not drew_arrow and t >= 1-1.5*segment_spacing) then
-            draw_line(x, y, new_x, new_y, thickness, alpha, end_spacing, arrow_size, arrow_pos)
-            drew_arrow = true
-        else
-            draw_line(x, y, new_x, new_y, thickness, alpha, end_spacing)
-        end
-        x = new_x
-        y = new_y
-    end
+    return y-base_y
 end
 
 function get_deck(deck_name)
@@ -677,7 +594,21 @@ function get_deck(deck_name)
     end
 end
 
+function get_action_stack(node)
+    local action_stack = {}
+    while(node ~= nil and node.action ~= nil) do
+        table.insert(action_stack, 1, node)
+        node = node.parent
+    end
+    return action_stack
+end
+
 function set_history(current_i_target)
+    if(current_i_target == current_i+1) then
+        step_history()
+        return
+    end
+
     reset_cast_except_action_sprites()
 
     if(current_i_target <= 1) then
@@ -689,14 +620,17 @@ function set_history(current_i_target)
 
     e = cast_history[current_i_target-1]
 
+    local node = e.node
+    local action_stack = get_action_stack(node)
+
     local deletion_start = 1
-    if(current_action_stack ~= nil) then
-        for i, a in ipairs(current_action_stack) do
-            if(i <= #e.action_stack and a.action == e.action_stack[i].action) then
-                deletion_start = i+1
-            else
-                break
-            end
+    --TODO: this is slightly incorrect if an action is poped, and pushed back between
+    --      the current state and the new target one, but not a huge deal for now
+    for i, a in ipairs(action_sprites) do
+        if(i <= #action_stack and action_stack[i].action == a.node.action) then
+            deletion_start = i+1 --this way it can reach beyond #action_sprites
+        else
+            break
         end
     end
 
@@ -704,33 +638,17 @@ function set_history(current_i_target)
         pop_action(10)
     end
 
-    for i=deletion_start, #e.action_stack do
-        local card
-        if(e.action_stack[i].action.permanently_attached) then
-            local unique_ac_id = e.action_stack[i].action.unique_ac_id
-            for j, ac_card in ipairs(always_cast_cards) do
-                if(ac_card.unique_ac_id == unique_ac_id) then
-                    card = ac_card.card
-                    break
-                end
-            end
-        else
-            local index = e.action_stack[i].action.deck_index + 1
-            if(index >= 1 and index <= #start_deck) then
-                card = start_deck[index]
-            end
-        end
+    for i=deletion_start, #action_stack do
+        local card = action_stack[i].action.debug_card
         if(card ~= nil) then
-            local action_sprite = push_action(card)
-
-            local parent_action_index = #e.action_stack-1
-            action_sprite.x = card.x
-            action_sprite.y = card.y
+            local action_sprite = push_action(action_stack[i])
+        else
+            GamePrint("ERROR: nil card (in set_history)")
         end
     end
 
-    step_history(current_i_target-1, true, true)
-    current_action_stack = e.action_stack
+    clear_card_sprites(true)
+    step_history(current_i_target-current_i, true, true)
 end
 
 function step_history(steps, no_instant_step, skip_actions)
@@ -739,32 +657,16 @@ function step_history(steps, no_instant_step, skip_actions)
     while current_i < start_i+steps do
         if(current_i > #cast_history or current_i <= 0) then break end
         local e = cast_history[current_i]
-        current_action_stack = e.action_stack
+        GamePrint("event: "..e.type)
         if(not skip_actions and e.type == "action") then
-            local card
-            if(e.action_stack[#e.action_stack].action.permanently_attached) then
-                local unique_ac_id = e.action_stack[#e.action_stack].action.unique_ac_id
-                for j, ac_card in ipairs(always_cast_cards) do
-                    if(ac_card.unique_ac_id == unique_ac_id) then
-                        card = ac_card.card
-                        break
-                    end
-                end
-            else
-                local index = e.action_stack[#e.action_stack].action.deck_index + 1
-                if(index >= 1 and index <= #start_deck) then
-                    card = start_deck[index]
-                end
-            end
+            local card = e.node.action.debug_card
             if(card ~= nil) then
                 card.dscale = card.dscale+0.5
                 card.dy = card.dy-10.0
 
-                local action_sprite = push_action(card)
-
-                local parent_action_index = #e.action_stack-1
-                action_sprite.x = card.x
-                action_sprite.y = card.y
+                local action_sprite = push_action(e.node)
+            else
+                GamePrint("ERROR: nil card (in step_history)")
             end
 
             -- Speed up playback for divide by's
@@ -774,35 +676,8 @@ function step_history(steps, no_instant_step, skip_actions)
             -- if(iteration >= 2) then
             --     playback_wait = 1
             -- end
-
-            -- if(action.action.id == "RESET") then
-            --     playing = false
-            -- end
-
-            current_action_stack = e.action_stack
         elseif(not skip_actions and e.type == "action_end") then
             pop_action(10)
-        -- elseif(e.type == "draw") then
-        --     local action_sprite = action_sprites[#e.action_stack]
-        --     if(action_sprite ~= nil) then
-        --         action_sprite.draw_step = 1
-        --         action_sprite.draw_how_many = e.info.how_many
-        --         action_sprite.line1 = "draw"
-        --         action_sprite.line2 = action_sprite.draw_step.."/"..action_sprite.draw_how_many
-        --         if(e.info.dont_draw_actions) then
-        --             action_sprite.line1 = "can't draw"
-        --             action_sprite.line2 = ""
-        --         end
-        --     end
-        --     if(not no_instant_step) then steps = steps+1 end
-        -- elseif(e.type == "draw_step") then
-        --     local action_sprite = action_sprites[#e.action_stack]
-        --     if(action_sprite ~= nil) then
-        --         action_sprite.line1 = "draw"
-        --         action_sprite.line2 = action_sprite.draw_step.."/"..action_sprite.draw_how_many
-        --         action_sprite.draw_step = action_sprite.draw_step+1
-        --     end
-        --     if(not no_instant_step) then steps = steps+1 end
         elseif(e.type == "card_move") then
             local source = get_deck(e.info.source)
             local dest = get_deck(e.info.dest)
@@ -812,34 +687,24 @@ function step_history(steps, no_instant_step, skip_actions)
             playback_wait = 10
         elseif(e.type == "add_ac_card") then
             local dest = get_deck(e.info.dest)
-            local action = always_casts[e.info.ac_index]
+            local action = e.node.action
             local card = make_debug_card(action)
-            card.sprite = add_sprite(card)
-            table.insert(card_sprites, card.sprite)
+            card.sprite = add_sprite(card, true)
             table.insert(dest, card)
-            table.insert(always_cast_cards, {unique_ac_id=e.info.unique_ac_id, card=card})
             playback_wait = 10
         elseif(e.type == "delete_ac_card") then
             local source = get_deck(e.info.source)
             local sprite = source[e.info.index].sprite
             table.remove(source, e.info.index)
-            for i, s in ipairs(card_sprites) do
-                if(s == sprite) then
-                    table.remove(card_sprites, i)
-                    break
-                end
-            end
-            for i, ac_card in ipairs(always_cast_cards) do
-                if(ac_card.unique_ac_id == e.info.unique_ac_id) then
-                    table.remove(always_cast_cards, i)
-                    break
-                end
-            end
+            --TODO: fade this out
             EntityKill(sprite)
             playback_wait = 10
         elseif(e.type == "order_deck") then
-            -- table.sort(deck, function(a,b) return e.info.order[a.deck_index] < e.info.order[b.deck_index] end)
-            table.sort(deck, function(a,b) return a.action.deck_index < b.action.deck_index end)
+            local sorted_deck = {}
+            for i, j in ipairs(e.info.order) do
+                sorted_deck[i] = deck[j]
+            end
+            deck = sorted_deck
         -- elseif(e.type == "cast_done") then
         --     -- table.sort(deck, function(a,b) return e.info.order[a.deck_index] < e.info.order[b.deck_index] end)
         --     playing = false
@@ -852,7 +717,7 @@ end
 
 function reset_cast()
     clear_action_sprites()
-    current_action_stack = nil
+    clear_card_sprites(true)
     reset_cast_except_action_sprites()
 end
 
@@ -871,6 +736,7 @@ end
 function OnWorldPostUpdate()
     player = EntityGetWithTag( "player_unit" )[1];
     local held_wand
+    local m1
     if(player ~= nil) then
         local inventory = EntityGetFirstComponent(player, "Inventory2Component")
         local active_item = ComponentGetValue2( inventory, "mActiveItem" )
@@ -879,21 +745,15 @@ function OnWorldPostUpdate()
             held_wand = active_item
         end
 
-        -- local children = EntityGetAllChildren(player)
-        -- card_sprites = {}
-        -- for i, c in ipairs(children) do
-        --     if(EntityHasTag(c, "dbg_card")) then
-        --         local index =
-        --         table.insert(card_sprites, c, index)
-        --     end
-        -- end
+        -- local controls_component = EntityGetFirstComponent(player, "ControlsComponent")
+        -- m1 = ComponentGetValue2(controls_component, "mButtonDownLeftClick") or false
     end
 
     GuiStartFrame(gui)
     GuiOptionsAdd(gui, GUI_OPTION.NoPositionTween);
-    gui_id = 0
+    start_gui(gui)
 
-    local mx, my = DEBUG_GetMouseWorld()
+    mx, my = DEBUG_GetMouseWorld()
 
     local cx, cy, cw, ch = GameGetCameraBounds()
     cx, cy = GameGetCameraPos()
@@ -903,13 +763,15 @@ function OnWorldPostUpdate()
     local cy = cy-ch/2
 
     local gw, gh = GuiGetScreenDimensions(gui)
+    -- GamePrint("screen dimensions: ("..gw..", "..gh..")")
+    -- GamePrint("camera dimensions: ("..cw..", "..ch..")")
 
-    mx = (mx-cx)*gw/cw+0.5
-    my = (my-cy)*gh/ch+0.5
+    mx = (mx-cx)*gw/cw+1.0
+    my = (my-cy)*gw/cw-1.5
 
     -- local dot_sprite = base_dir .. "files/ui_gfx/line_dot.png"
     -- GuiImage(gui, get_id(), mx, my, dot_sprite,
-             -- 1.0, 1, 0, 0)
+    --          1.0, 1, 0, 0)
 
     local wand_changed = false
 
@@ -941,12 +803,12 @@ function OnWorldPostUpdate()
 
     local open_tree_pressed = GuiImageButton(gui, get_id("tree_icon"), gw-16-32, gh-16, "", base_dir.."files/ui_gfx/tree_icon.png")
     local open_tree_tooltip = "Show Flowchart"
-    if(show_tree) then
+    if(tree_window.show) then
         open_tree_tooltip = "Hide Flowchart"
     end
     GuiTooltip(gui, open_tree_tooltip, "")
     if(open_tree_pressed) then
-        show_tree = not show_tree
+        tree_window.show = not tree_window.show
     end
 
     local wand_deck = {}
@@ -981,10 +843,10 @@ function OnWorldPostUpdate()
             local ability = EntityGetFirstComponentIncludingDisabled(held_wand, "AbilityComponent")
             local wand_stats = {gun_config = {}, gunactions_config = {}, n_always_casts = n_always_casts}
             ConfigGun_Init(wand_stats.gun_config)
-            wand_stats.actions_per_round = ComponentObjectGetValue2(ability, "gun_config", "actions_per_round")
-            wand_stats.reload_time = ComponentObjectGetValue2(ability, "gun_config", "reload_time")
-            wand_stats.deck_capacity = ComponentObjectGetValue2(ability, "gun_config", "deck_capacity")
-            wand_stats.shuffle_deck_when_empty = ComponentObjectGetValue2(ability, "gun_config", "shuffle_deck_when_empty")
+            wand_stats.gun_config.actions_per_round = ComponentObjectGetValue2(ability, "gun_config", "actions_per_round")
+            wand_stats.gun_config.reload_time = ComponentObjectGetValue2(ability, "gun_config", "reload_time")
+            wand_stats.gun_config.deck_capacity = ComponentObjectGetValue2(ability, "gun_config", "deck_capacity")
+            wand_stats.gun_config.shuffle_deck_when_empty = ComponentObjectGetValue2(ability, "gun_config", "shuffle_deck_when_empty")
 
             -- local gunaction_config_members = ComponentObjectGetMembers(ability, "gun_config")
             -- for i, m in ipairs(gunaction_config_members) do
@@ -997,7 +859,7 @@ function OnWorldPostUpdate()
             -- end
 
             local start_deck_actions
-            cast_history, base_actions, action_trees, start_deck_actions, always_casts = debug_wand(wand_deck, wand_stats)
+            cast_history, action_trees, start_deck_actions, always_casts = debug_wand(wand_deck, wand_stats)
             for i, t in ipairs(action_trees) do
                 process_node(t)
             end
@@ -1011,9 +873,9 @@ function OnWorldPostUpdate()
             reset_cast()
             current_i_target = nil
         end
-        if(cast_history ~= nil and base_actions ~= nil and start_deck ~= nil) then
+        if(cast_history ~= nil and start_deck ~= nil) then
             if(show_animation) then
-                if(need_to_remake_cards or wand_changed or card_sprites == nil or #card_sprites ~= #start_deck) then
+                if(need_to_remake_cards or wand_changed or card_sprites == nil) then
                     clear_card_sprites()
                     card_sprites = {}
                     for i, card in ipairs(start_deck) do
@@ -1058,24 +920,33 @@ function OnWorldPostUpdate()
                     draw_deck(base_x, base_y, cx, cy, cw/gw, deck, false)
                 end
 
-                if(current_action_stack ~= nil and #current_action_stack > 0) then
-                    for i, a in ipairs(action_sprites) do
+                if(action_sprites ~= nil) then
+                    for i = #action_sprites,1,-1 do
+                        a = action_sprites[i]
                         a.x_target = 10+32*i
                         a.y_target = gh*0.6
 
-                        local action = current_action_stack[i]
-                        if(action.draw_how_many == nil) then
+                        local node = a.node
+                        if(node.draw_how_many == nil) then
                             a.line1 = ""
                             a.line2 = ""
-                        elseif(action.draw_how_many == -1) then
+                        elseif(node.dont_draw_actions == -1) then
                             a.line1 = "can't draw"
                             a.line2 = ""
-                        elseif(action.draw_how_many >= 1) then
+                        elseif(node.playing_permanent_card and node.draw_how_many <= 1) then
+                            a.line1 = "can't draw 1"
+                            a.line2 = "in always cast"
+                        elseif(node.draw_how_many >= 1) then
                             a.line1 = "draw"
-                            a.line2 = action.draw_step.."/"..action.draw_how_many
-                            if(action.draw_step == 0) then
-                                a.line2 = "1/"..action.draw_how_many
+                            if(a.line2 == "") then
+                                a.line2 = "0/"..node.draw_how_many
                             end
+                        end
+
+                        if(node.draw_step ~= nil and i > 1) then
+                            --technically draw_total and draw_how_many are slightly redundent,
+                            --but could theoretically support wierd spells later on more easily
+                            action_sprites[i-1].line2 = node.draw_step.."/"..node.draw_total
                         end
 
                         animate_card(a, a.sprite, cx, cy, cw/gw)
@@ -1112,21 +983,10 @@ function OnWorldPostUpdate()
                 end
             end
 
-            if(show_tree) then
-                local base_x = 20
-                local base_y = 50
-                GuiBeginScrollContainer(gui, get_id("tree_scrollbox"), base_x, base_y, 500, 200)
-                draw_trees()
-                GuiEndScrollContainer(gui)
+            if(start_window(gui, tree_window)) then
+                local bottom = draw_trees(-tree_window.x_scroll, 0)
             end
-
-            -- for i, e in ipairs(cast_history) do
-            --    if(e.type == "action" and e.base_action) then
-
-            --    elseif(e.type == "card_move") then
-
-            --    end
-            -- end
+            end_window(gui, tree_window)
         end
     end
 end

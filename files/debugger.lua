@@ -5,14 +5,10 @@ function init_debugger(gui)
     dofile_once( "data/scripts/gun/gun.lua" );
 
     local cast_history = {}
-    local action_stack = {}
 
     local action_trees = {}
     local current_node = nil
     local current_explanation = ""
-
-    local base_actions = {}
-    local base_action = true
 
     local removed_actions = {}
     local inserted_actions = {}
@@ -22,10 +18,14 @@ function init_debugger(gui)
 
     local original_order_deck = order_deck
     function order_deck()
+        for i, a in ipairs(deck) do
+            a.temp_index = i
+        end
         original_order_deck()
         local order = {}
         for i, a in ipairs(deck) do
-            order[a.deck_index] = i
+            order[i] = a.temp_index
+            a.temp_index = nil
         end
         make_snapshot("order_deck", {order=order})
     end
@@ -132,7 +132,7 @@ function init_debugger(gui)
             -- discarded = copy_table(discarded),
             -- hand = copy_table(hand),
             -- deck = copy_table(deck),
-            action_stack = copy_table(action_stack),
+            node = current_node,
             c = {}
         }
         ConfigGunActionInfo_Copy(c, event.c)
@@ -193,27 +193,16 @@ function init_debugger(gui)
     OnActionPlayed = function(action_id)
         if(action_id == nil) then action_id = "nil" end
         --GamePrint("action " .. action_id .. " played")
-        base_action = true
-        -- GuiText(gui, dbglog_x, dbglog_y, action_id .. " played")
-        -- dbglog_y = dbglog_y + 10
     end
 
     local draw_total = 0
-    local draw_current = 0
+    local draw_step = 0
     local original_draw_actions = draw_actions
     draw_actions = function(how_many, instant_reload_if_empty)
-        -- make_snapshot("draw", {how_many = how_many, instant_reload_if_empty=instant_reload_if_empty, dont_draw_actions=dont_draw_actions})
-        if(action_stack[#action_stack] ~= nil) then
-            action_stack[#action_stack].draw_step = 0
-            action_stack[#action_stack].draw_how_many = how_many
-            if(dont_draw_actions) then
-                action_stack[#action_stack].draw_how_many = -1
-            end
-        end
         draw_total = how_many
-        draw_current = 0
+        draw_step = 0
         if(current_node ~= nil) then
-            current_node.draw = how_many
+            current_node.draw_how_many = how_many
             if(dont_draw_actions) then
                 current_node.dont_draw_actions = true
             end
@@ -226,22 +215,48 @@ function init_debugger(gui)
 
     local original_draw_action = draw_action
     draw_action = function(instant_reload_if_empty)
-        -- make_snapshot("draw_step", {instant_reload_if_empty=instant_reload_if_empty})
-        local current_action = action_stack[#action_stack]
-        if(current_action ~= nil) then
-            action_stack[#action_stack] = {
-                i = current_action.i,
-                action = current_action.action,
-                base_index = current_action.base_index,
-                draw_step = current_action.draw_step+1,
-                draw_how_many = current_action.draw_how_many,
-            }
-        end
-        draw_current = draw_current+1
+        draw_step = draw_step+1
         local old_explanation = current_explanation
-        current_explanation = "draw "..draw_current.."/"..draw_total
+        current_explanation = "draw"
         original_draw_action(instant_reload_if_empty)
         current_explanation = old_explanation
+    end
+
+    local adding_always_cast = false
+
+    local ac_play_actions = function(action)
+        OnActionPlayed( action.id )
+
+        table_insert(hand, action)
+        adding_always_cast = true
+
+        set_current_action( action )
+        action.action()
+
+        local is_projectile = false
+
+        if action.type == ACTION_TYPE_PROJECTILE then
+            is_projectile = true
+            got_projectiles = true
+        end
+
+        if  action.type == ACTION_TYPE_STATIC_PROJECTILE then
+            is_projectile = true
+            got_projectiles = true
+        end
+
+        if action.type == ACTION_TYPE_MATERIAL then
+            is_projectile = true
+            got_projectiles = true
+        end
+
+        if is_projectile then
+            for i,modifier in ipairs(active_extra_modifiers) do
+                extra_modifiers[modifier]()
+            end
+        end
+
+        current_reload_time = current_reload_time + ACTION_DRAW_RELOAD_TIME_INCREASE
     end
 
     function debug_wand(wand_deck, wand_stats)
@@ -250,10 +265,7 @@ function init_debugger(gui)
         mana = wand_mana
 
         cast_history = {}
-        action_stack = {}
         action_trees = {}
-        base_actions = {}
-        base_action = true
 
         removed_actions = {}
         inserted_actions = {}
@@ -276,19 +288,21 @@ function init_debugger(gui)
                     if action.id == action_id then
                         action_clone = {}
                         clone_action( action, action_clone )
-                        action_clone.inventoryitem_id = inventoryitem_id
-                        action_clone.uses_remaining   = uses_remaining
-                        action_clone.deck_index       = #deck
-                        action_clone.is_identified    = is_identified
-                        action_clone.sprite = action.sprite
-                        -- debug_print( "uses " .. uses_remaining )
-                        -- if(action.never_unlimited == true) then action_clone.uses_remaining = 0 end
+
                         if(i <= wand_stats.n_always_casts) then
                             action_clone.permanently_attached = true
                             action_clone.uses_remaining = -1
-                            action_clone.deck_index = 0
+                            action_clone.sprite = action.sprite
+                            action_clone.deck_index = nil
                             table.insert(always_casts, action_clone)
                         else
+                            action_clone.inventoryitem_id = inventoryitem_id
+                            action_clone.uses_remaining   = uses_remaining
+                            action_clone.deck_index       = #deck
+                            action_clone.is_identified    = is_identified
+                            action_clone.sprite = action.sprite
+                            -- debug_print( "uses " .. uses_remaining )
+                            -- if(action.never_unlimited == true) then action_clone.uses_remaining = 0 end
                             table.insert(deck, action_clone)
                         end
                         break
@@ -296,71 +310,33 @@ function init_debugger(gui)
                 end
             end
 
-            for i, action_id in ipairs(wand_deck) do
-                local inventory_item_id = i
-                local uses_remaining = -1
-                local is_identified = true
-
-                if(i > wand_stats.n_always_casts) then
-                    for j, action in ipairs(actions) do
-                        if action.id == action_id then
-                            action_clone = {}
-                            clone_action( action, action_clone )
-                            action_clone.inventoryitem_id = inventoryitem_id
-                            action_clone.uses_remaining   = uses_remaining
-                            action_clone.deck_index       = #start_deck
-                            action_clone.is_identified    = is_identified
-                            action_clone.sprite = action.sprite
-                            -- debug_print( "uses " .. uses_remaining )
-                            table.insert(start_deck, action_clone)
-                            break
-                        end
-                    end
-                end
+            for j, action in ipairs(deck) do
+                table.insert(start_deck, action)
             end
         end
 
-        function modify_action(action)
+        function modify_action(action, is_always_cast)
             local original_action = action.action
             if(action.id == "RESET") then
                 original_action = action_reset
             end
             action.action = function( recursion_level, iteration )
-                local base_index = 0
-                if(#action_stack > 0) then
-                    base_index = action_stack[#action_stack].base_index
+                local node = {parent = current_node, children = {}, action = action, rec = recursion_level, iter = iteration, explanation=current_explanation}
+                if(current_explanation == "draw") then
+                    node.draw_step = draw_step
+                    node.draw_total = draw_total
                 end
-                if(base_action) then
-                    table.insert(base_actions, action)
-                    base_index = #base_actions
-                end
-
-                local indent_level = 1+(recursion_level or 0) + (iteration or 0)
-                indent = ""
-                for j=1,indent_level do
-                    indent = indent .. "  "
-                end
-                if(base_action) then
-                    indent = indent .. "base action " .. base_index .. ": "
-                end
-                -- GuiText(gui, dbglog_x, dbglog_y, indent .. action.id .. " played")
-                -- dbglog_y = dbglog_y + 10
-
-                local node = {parent = current_node, children = {}, action = action, rec = recursion_level, iter = iteration, draw_current = draw_current, draw_total = draw_total, explanation=current_explanation}
-                if(current_node == nil) then
-                    table.insert(action_trees, node)
-                else
-                    table.insert(current_node.children, node)
-                end
+                table.insert(current_node.children, node)
                 current_node = node
+                if(is_always_cast and adding_always_cast) then
+                    make_snapshot("add_ac_card", {dest = "hand"})
+                    adding_always_cast = false
+                end
                 current_explanation = action.id
-                table.insert(action_stack, {i = #cast_history+1, action = action, base_index = base_index})
-                make_snapshot("action", {base_action=base_action, node=node, recursion_level=recursion_level, iteration=iteration})
+                make_snapshot("action", {recursion_level=recursion_level, iteration=iteration})
                 node.event_index = #cast_history
-                base_action = false
                 local ret = original_action(recursion_level, iteration)
-                table.remove(action_stack, #action_stack)
-                make_snapshot("action_end", {base_action=base_action, recursion_level=recursion_level, iteration=iteration})
+                make_snapshot("action_end", {recursion_level=recursion_level, iteration=iteration})
                 node.end_event_index = #cast_history
                 current_node = node.parent
                 current_explanation = node.explanation
@@ -368,12 +344,12 @@ function init_debugger(gui)
             end
         end
 
-        for i, action in ipairs(always_casts) do
-            modify_action(action)
-        end
+        -- for i, action in ipairs(always_casts) do
+        --     modify_action(action, true)
+        -- end
 
         for i, action in ipairs(deck) do
-            modify_action(action)
+            modify_action(action, false)
         end
 
         table.insert = function(t, i)
@@ -427,6 +403,7 @@ function init_debugger(gui)
             return table_remove(t, index)
         end
 
+        --TODO: allow all requirements to be toggled/dummy hp thing
         GlobalsSetValue( "GUN_ACTION_IF_HALF_STATUS", tostring( 0 ) )
 
         gun = wand_stats.gun_config
@@ -450,65 +427,31 @@ function init_debugger(gui)
         start_reload = false
         got_projectiles = false
 
-        local iteration_limit = 100
+        local cast_limit = 26
 
         reloaded = false
 
-        current_node = nil
-        while(not reloaded) do
+        local cast_number = 1
+        while(not reloaded or #deck > #start_deck) do
+            current_node = {parent = nil, children = {}, cast_number = cast_number}
+            table.insert(action_trees, current_node)
+            cast_number = cast_number+1
+
             _start_shot(wand_mana)
 
             local old_table_insert = table.insert
             playing_permanent_card = true
-            local unique_ac_id = 1
             for ac, action in ipairs(always_casts) do
-                handle_mana_addition(action)
-                -- table.insert = function(t, i)
-                --     local table_name
-                --     if(t == discarded) then table_name = "discarded" end
-                --     if(t == hand)      then table_name = "hand" end
-                --     if(t == deck)      then table_name = "deck" end
-                --     if(table_name ~= nil) then
-                --         make_snapshot("add_ac_card", {dest = table_name, ac_index = ac})
-                --     end
-                --     return table_insert(t, i)
-                -- end
-                -- play_action(action)
+                action_clone = {}
+                clone_action(action, action_clone)
+                action_clone.permanently_attached = true
+                action_clone.uses_remaining   = -1
+                action_clone.sprite = action.sprite
 
-                OnActionPlayed( action.id )
+                modify_action(action_clone, true)
 
-                make_snapshot("add_ac_card", {dest = "hand", ac_index = ac, unique_ac_id = unique_ac_id})
-                action.unique_ac_id = unique_ac_id
-                unique_ac_id = unique_ac_id + 1
-                table_insert( hand, action )
-
-                set_current_action( action )
-                action.action()
-
-                local is_projectile = false
-
-                if action.type == ACTION_TYPE_PROJECTILE then
-                    is_projectile = true
-                    got_projectiles = true
-                end
-
-                if  action.type == ACTION_TYPE_STATIC_PROJECTILE then
-                    is_projectile = true
-                    got_projectiles = true
-                end
-
-                if action.type == ACTION_TYPE_MATERIAL then
-                    is_projectile = true
-                    got_projectiles = true
-                end
-
-                if is_projectile then
-                    for i,modifier in ipairs(active_extra_modifiers) do
-                        extra_modifiers[modifier]()
-                    end
-                end
-
-                current_reload_time = current_reload_time + ACTION_DRAW_RELOAD_TIME_INCREASE
+                handle_mana_addition(action_clone)
+                ac_play_actions(action_clone)
             end
             playing_permanent_card = false
             table.insert = old_table_insert
@@ -518,8 +461,8 @@ function init_debugger(gui)
             -- draw_shot(root_shot, false)
             -- move_hand_to_discarded()
             make_snapshot("cast_done", {})
-            iteration_limit = iteration_limit - 1
-            if(iteration_limit == 0) then
+            cast_limit = cast_limit - 1
+            if(cast_limit == 0) then
                 break
             end
         end
@@ -530,7 +473,7 @@ function init_debugger(gui)
         -- GuiText(gui, dbglog_x, dbglog_y,'ending shot')
         -- dbglog_y = dbglog_y+10
 
-        return cast_history, base_actions, action_trees, start_deck, always_casts
+        return cast_history, action_trees, start_deck, always_casts
     end
 
     return debug_wand
