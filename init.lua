@@ -69,13 +69,15 @@ local options = {
     {id="frame_number", name="Frame Number", type="text_number", value = 0, integer=true},
 }
 
+local config = {}
+
 for i, option in ipairs(options) do
+    option.default = option.value
     option.override = ModSettingGet(mod_name.."."..option.id.."_override") or nil
     option.value    = ModSettingGet(mod_name.."."..option.id.."_value") or option.value
-    option.default = option.value
+    option.value = option.value or false
+    config[option.id] = option.override and option.value
 end
-
-local config = {}
 
 local discarded = {}
 local hand = {}
@@ -718,27 +720,6 @@ function draw_text_image_list(value, x, y)
     return width
 end
 
-function get_projectile_icon(entity_filename)
-    local action = projectile_table[entity_filename]
-    if(action == nil) then
-        return "data/ui_gfx/gun_actions/unidentified.png"
-    end
-    if(action.normal ~= nil) then
-        return action.normal.sprite
-    elseif(action.timer ~= nil) then
-        return action.timer.sprite
-    elseif(action.trigger ~= nil) then
-        return action.trigger.sprite
-    elseif(action.death_trigger ~= nil) then
-        return action.death_trigger.sprite
-    end
-    return "data/ui_gfx/gun_actions/unidentified.png"
-end
-
--- format_projectiles = make_format_comma_list_with_images(get_projectile_icon)
-
-format_projectiles = function(a) return a end
-
 function draw_cast_state(state, x, y)
     local base_x = x
     local base_y = y
@@ -803,7 +784,6 @@ function draw_cast_state(state, x, y)
     end
     if(clicked) then
         cast_state_collapsed[state.c] = not cast_state_collapsed[state.c]
-        GamePrint("clicked")
     end
     local image = base_dir.."files/ui_gfx/black_circle.png"
     local im_w, im_h = GuiGetImageDimensions(gui, image, 1)
@@ -928,14 +908,14 @@ function draw_config(x, y, window_x, window_y)
                 local old_value = option.value
                 local textbox_id = get_id("config_text_number_box_"..option.id)
                 if(gui_selected == textbox_id) then
-                    GamePrint("text box "..textbox_id.." is selected")
+                    -- GamePrint("text box "..textbox_id.." is selected")
                     textbox_id = ""
                 end
                 option.value = tonumber(GuiTextInput(gui, textbox_id, x+button_width, y,
                                                      string.format("%d", option.value), 60, 9, "0123456789")) or 0
                 local clicked, right_clicked, hovered, textbox_x, textbox_y, textbox_width, textbox_height = get_previous_widget_info(gui)
                 if(clicked) then
-                    GamePrint("text box "..textbox_id.." is clicked")
+                    -- GamePrint("text box "..textbox_id.." is clicked")
                     gui_selected = textbox_id
                     new_gui_selected = textbox_id
                 end
@@ -1075,6 +1055,7 @@ function step_history(steps, no_instant_step, skip_actions)
             -- end
         elseif(not skip_actions and e.type == "action_end") then
             pop_action(10)
+            playback_wait = 10
         elseif(e.type == "new_cast_state") then
             if(cast_states[e.info.c_old_final] == nil) then
                 cast_states[e.info.c_old_final] = {c = e.info.c_old_final, current = e.info.c_old, children = {}}
@@ -1089,27 +1070,28 @@ function step_history(steps, no_instant_step, skip_actions)
             local item = source[e.info.index]
             table.remove(source, e.info.index)
             table.insert(dest, item)
-            playback_wait = 10
+            playback_wait = 5
         elseif(e.type == "add_ac_card") then
             local dest = get_deck(e.info.dest)
             local action = e.node.action
             local card = make_debug_card(action)
             card.sprite = add_sprite(card, true)
             table.insert(dest, card)
-            playback_wait = 10
+            playback_wait = 5
         elseif(e.type == "delete_ac_card") then
             local source = get_deck(e.info.source)
             local sprite = source[e.info.index].sprite
             table.remove(source, e.info.index)
             --TODO: fade this out
             EntityKill(sprite)
-            playback_wait = 10
+            playback_wait = 5
         elseif(e.type == "order_deck") then
             local sorted_deck = {}
             for i, j in ipairs(e.info.order) do
                 sorted_deck[i] = deck[j]
             end
             deck = sorted_deck
+            playback_wait = 5
         -- elseif(e.type == "cast_done") then
         --     -- table.sort(deck, function(a,b) return e.info.order[a.deck_index] < e.info.order[b.deck_index] end)
         --     playing = false
@@ -1279,7 +1261,11 @@ function OnWorldPostUpdate()
 
     local wand_deck = {}
     local n_always_casts = 0
-    if(player ~= nil and held_wand ~= nil) then
+    if(player == nil or held_wand == nil) then
+        need_to_remake_cards = true
+        reset_cast()
+        clear_card_sprites()
+    else
         local spells = EntityGetAllChildren(held_wand) or {}
         local ability_component = EntityGetFirstComponentIncludingDisabled(held_wand, "AbilityComponent")
         local deck_capacity = ComponentObjectGetValue(ability_component, "gun_config", "deck_capacity")
@@ -1428,7 +1414,7 @@ function OnWorldPostUpdate()
             always_cast_cards = {}
             start_deck = {}
             cast_state_collapsed = {}
-            if(cast_history ~= nil) then GamePrint("#cast_history = " .. #cast_history) end
+            -- if(cast_history ~= nil) then GamePrint("#cast_history = " .. #cast_history) end
             for i, action in ipairs(start_deck_actions) do
                 table.insert(start_deck, make_debug_card(action))
             end
@@ -1474,20 +1460,21 @@ function OnWorldPostUpdate()
 
                     local base_x = 32
                     local base_y = gh*0.9
+                    local label_y = gh*0.78
 
-                    GameCreateSpriteForXFrames(base_dir.."files/ui_gfx/discarded.png", cx+cw/gw*base_x, cy+cw/gw*(base_y-40),
+                    GameCreateSpriteForXFrames(base_dir.."files/ui_gfx/discarded.png", cx+cw/gw*base_x, cy+cw/gw*label_y,
                                                false, 0, 0, 1, true)
                     -- GuiText(gui, base_x, base_y-40,'discarded:')
                     draw_deck(base_x, base_y, cx, cy, cw/gw, discarded, "right")
                     base_x = base_x+16*13
 
-                    GameCreateSpriteForXFrames(base_dir.."files/ui_gfx/hand.png", cx+cw/gw*base_x, cy+cw/gw*(base_y-40),
+                    GameCreateSpriteForXFrames(base_dir.."files/ui_gfx/hand.png", cx+cw/gw*base_x, cy+cw/gw*label_y,
                                                false, 0, 0, 1, true)
                     -- GuiText(gui, base_x, base_y-40,'hand:')
                     draw_deck(base_x, base_y, cx, cy, cw/gw, hand, "middle")
                     base_x = base_x+16*13
 
-                    GameCreateSpriteForXFrames(base_dir.."files/ui_gfx/deck.png", cx+cw/gw*base_x, cy+cw/gw*(base_y-40),
+                    GameCreateSpriteForXFrames(base_dir.."files/ui_gfx/deck.png", cx+cw/gw*base_x, cy+cw/gw*label_y,
                                                false, 0, 0, 1, true)
                     -- GuiText(gui, base_x, base_y-40,'deck:')
                     draw_deck(base_x, base_y, cx, cy, cw/gw, deck, "left")
@@ -1497,7 +1484,7 @@ function OnWorldPostUpdate()
                     for i = #action_sprites,1,-1 do
                         a = action_sprites[i]
                         a.x_target = 10+32*i
-                        a.y_target = gh*0.9-56
+                        a.y_target = gh*0.73
 
                         local node = a.node
                         if(node.draw_how_many == nil) then

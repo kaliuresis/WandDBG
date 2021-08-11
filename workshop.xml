@@ -1,0 +1,8 @@
+<Mod
+    name="Wand Dbg"
+    description=""
+    tags="gameplay,quality of life,spells,cheats,"
+    dont_upload_folders="backup|files\backup"
+    dont_upload_files=""
+    >
+</Mod>

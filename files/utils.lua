@@ -64,7 +64,7 @@ function comma_multiplicity_list_iter(list)
         end
         local item = string.sub(list, 1, item_end-1)
         list = string.sub(list, comma_j+1)
-        GamePrint(item.." x "..n)
+        -- GamePrint(item.." x "..n)
         return item, n
     end
 end
@@ -87,40 +87,56 @@ end
 
 function make_format_comma_list_with_images(get_image)
     return function(text)
-        -- local counts = {}
-        -- for item in string.gmatch(text, "[^ ,]+") do
-        --     counts[item] = (counts[item] or 0)+1
-        -- end
-        -- local formatted = {}
-        -- for i, n in pairs(counts) do
-        --     table.insert(formatted, {get_image(i), i})
-        --     if(n ~= 1) then
-        --         table.insert(formatted, "x"..n.." ")
-        --     else
-        --         table.insert(formatted, " ")
-        --     end
-        -- end
-        -- return formatted
-        return {}
+        local counts = {}
+        for item in string.gmatch(text, "[^ ,]+") do
+            counts[item] = (counts[item] or 0)+1
+        end
+        local formatted = {}
+        for i, n in pairs(counts) do
+            table.insert(formatted, {get_image(i), i})
+            if(n ~= 1) then
+                table.insert(formatted, "x"..n.." ")
+            else
+                table.insert(formatted, " ")
+            end
+        end
+        return formatted
     end
 end
 
-function format_cast_state_list(list)
-    local counts = {}
-    local formatted = {}
-    -- for i, m in ipairs(list) do
-    --     --doing things this way since spells can have conditions for adding extra entities
-    --     local identifier = m.action_id..":"..m.items
-    --     counts[identifier] = (counts[identifier] or 0)+m.count
-    -- end
-    -- for identifier in string.gmatch(list[1], "[^:]+:[^:]+,") do
-    --     counts[identifier] = (counts[identifier] or 0)+1
-    -- end
-    for identifier, count in comma_multiplicity_list_iter(list[1]) do
-        counts[identifier] = (counts[identifier] or 0)+count
+function get_projectile_icon(entity_filename)
+    local action = projectile_table[entity_filename]
+    if(action == nil) then
+        return "data/ui_gfx/gun_actions/unidentified.png"
     end
+    if(action.normal ~= nil) then
+        return action.normal.sprite
+    elseif(action.timer ~= nil) then
+        return action.timer.sprite
+    elseif(action.trigger ~= nil) then
+        return action.trigger.sprite
+    elseif(action.death_trigger ~= nil) then
+        return action.death_trigger.sprite
+    end
+    return "data/ui_gfx/gun_actions/unidentified.png"
+end
 
-    for identifier,n in pairs(counts) do
+function format_projectiles(list)
+    local formatted = {}
+    for item, n in comma_multiplicity_list_iter(list) do
+        table.insert(formatted, {get_projectile_icon(item), item})
+        if(n ~= 1) then
+            table.insert(formatted, "x"..n.." ")
+        else
+            table.insert(formatted, " ")
+        end
+    end
+    return formatted
+end
+
+function format_cast_state_list(list)
+    local formatted = {}
+    for identifier, n in comma_multiplicity_list_iter(list[1]) do
         -- local action_id = string.match(identifier, "[^:]*")
         local action_id = string.match(identifier, "[^{]*")
         local items = string.sub(identifier, #action_id+2,-2)

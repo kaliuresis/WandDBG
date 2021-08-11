@@ -381,6 +381,7 @@ init_debugger = function()
 
         if(wand_deck ~= nil) then
 
+            -- GamePrint("maximize_uses = "..tostring(wand_stats.maximize_uses) .. ", unlimited_spells = "..tostring(wand_stats.unlimited_spells))
             for i, card in ipairs(wand_deck) do
                 local inventoryitem_id = i
                 local is_identified = true
@@ -409,6 +410,7 @@ init_debugger = function()
                             if(wand_stats.unlimited_spells and not action.never_unlimited) then
                                 action_clone.uses_remaining = -1
                             end
+                            -- GamePrint(action.id.." uses = "..action_clone.uses_remaining)
                             uses_table[action_clone.inventoryitem_id] = action_clone.uses_remaining
                             table.insert(deck, action_clone)
                         end
