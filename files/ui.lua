@@ -1,15 +1,23 @@
 mx = 0
 my = 0
+gx = 0
+gy = 0
 local drag_mx = 0
 local drag_my = 0
 
 local max_x
 local max_y
+window_active = false
+other_window_blocking = false
+inner_window_hovered = false
 
 --Constant settings windows
 local drag_bar_height = 9
 local window_min_width = 10
 local window_min_height = 10
+
+gui_selected = nil
+new_gui_selected = nil
 
 local named_gui_id = 100000
 gui_id = 0
@@ -18,13 +26,16 @@ function get_id(name, n_ids)
     n_ids = n_ids or 1
     if(name ~= nil) then
         if(gui_ids[name] ~= nil) then
+            prev_gui_id = gui_ids[name]
             return gui_ids[name]
         end
         named_gui_id = named_gui_id+n_ids
         gui_ids[name] = named_gui_id
+        prev_gui_id = named_gui_id
         return named_gui_id
     end
     gui_id = gui_id+1
+    prev_gui_id = gui_id
     return gui_id
 end
 
@@ -34,13 +45,49 @@ function start_gui(gui)
     gui_id = 0
 end
 
-function draw_line(gui, x1, y1, x2, y2, thickness, alpha, end_spacing, arrow_size, arrow_pos)
+local z_global = 0
+function z_set_global(gui, z)
+    z_global = z
+    GuiZSet(gui, z)
+end
+
+function z_set_next_relative(gui, z)
+    GuiZSetForNextWidget(gui, z_global+z)
+end
+
+function z_set_relative(gui, z)
+    GuiZSetForNextWidget(gui, z_global+z)
+end
+
+interactive = true
+function set_interactive(gui, new_interactive)
+    interactive = new_interactive
+    if(interactive) then
+        GuiOptionsRemove(gui, GUI_OPTION.NonInteractive)
+    else
+        GuiOptionsAdd(gui, GUI_OPTION.NonInteractive)
+    end
+end
+
+function get_previous_widget_info(gui)
+    local clicked, right_clicked, hovered, x, y, width, height = GuiGetPreviousWidgetInfo(gui)
+    if(inner_window_hovered and not other_window_blocking and (clicked or right_clicked)) then
+        window_active = true
+    elseif(not inner_window_hovered or not interactive or other_window_blocking) then
+        clicked = false
+        right_clicked = false
+        hovered = false
+    end
+    return clicked, right_clicked, hovered, x, y, width, height
+end
+
+function draw_line(gui, x1, y1, x2, y2, thickness, color, alpha, end_spacing, arrow_size, arrow_pos)
     thickness = thickness or 1
     end_spacing = end_spacing or 0
     arrow_pos = arrow_pos or 0.5
-    alpha = alpha or 0
-    local material_name = "spark_white"
-    local sprite = base_dir .. "files/ui_gfx/line_dot.png"
+    color = color or "white"
+    alpha = alpha or 1
+    local sprite = base_dir .. "files/ui_gfx/line_dot_"..color..".png"
     local dx = (x2-x1)
     local dy = (y2-y1)
     local length = math.sqrt(dx*dx+dy*dy)
@@ -49,19 +96,26 @@ function draw_line(gui, x1, y1, x2, y2, thickness, alpha, end_spacing, arrow_siz
     local rotation = math.atan2(-dx, dy)
     local x_off, y_off = complexx(-0.5*thickness, 0.5*thickness, dx, dy)
     GuiImage(gui, get_id(), x1+dx*end_spacing+x_off, y1+dy*end_spacing+y_off, sprite,
-             alpha, thickness, length-2*end_spacing, rotation)
+             alpha, thickness, length+0.5*thickness-2*end_spacing, rotation)
 
     if(arrow_size) then
         local x0 = lerp(x1, x2, arrow_pos)+dx*arrow_size/2
         local y0 = lerp(y1, y2, arrow_pos)+dy*arrow_size/2
         local xt, yt = complexx(-arrow_size, arrow_size/2, dx,dy)
-        draw_line(gui, x0, y0, x0+xt, y0+yt, thickness, alpha)
+        draw_line(gui, x0, y0, x0+xt, y0+yt, thickness, color, alpha)
         xt, yt = complexx(-arrow_size, -arrow_size/2, dx,dy)
-        draw_line(gui, x0, y0, x0+xt, y0+yt, thickness, alpha)
+        draw_line(gui, x0, y0, x0+xt, y0+yt, thickness, color, alpha)
     end
 end
 
-function draw_spline(gui, x0, y0, x1, y1, x2, y2, x3, y3, thickness, alpha, end_spacing, arrow_size, arrow_pos, segment_spacing)
+function draw_box(gui, x, y, width, height, thickness, color, alpha)
+    draw_line(gui, x, y, x+width, y, thickness, color, alpha)
+    draw_line(gui, x+width, y, x+width, y+height, thickness, color, alpha)
+    draw_line(gui, x+width, y+height, x, y+height, thickness, color, alpha)
+    draw_line(gui, x, y+height, x, y, thickness, color, alpha)
+end
+
+function draw_spline(gui, x0, y0, x1, y1, x2, y2, x3, y3, thickness, color, alpha, end_spacing, arrow_size, arrow_pos, segment_spacing)
     segment_spacing = segment_spacing or 0.05
     arrow_pos = arrow_pos or 0.5
     local x = x0
@@ -72,10 +126,10 @@ function draw_spline(gui, x0, y0, x1, y1, x2, y2, x3, y3, thickness, alpha, end_
         local new_y = bezier(y0, y1, y2, y3, t)
 
         if(not drew_arrow and t >= 1-1.5*segment_spacing) then
-            draw_line(gui, x, y, new_x, new_y, thickness, alpha, end_spacing, arrow_size, arrow_pos)
+            draw_line(gui, x, y, new_x, new_y, thickness, color, alpha, end_spacing, arrow_size, arrow_pos)
             drew_arrow = true
         else
-            draw_line(gui, x, y, new_x, new_y, thickness, alpha, end_spacing)
+            draw_line(gui, x, y, new_x, new_y, thickness, color, alpha, end_spacing)
         end
         x = new_x
         y = new_y
@@ -83,12 +137,18 @@ function draw_spline(gui, x0, y0, x1, y1, x2, y2, x3, y3, thickness, alpha, end_
 end
 
 function test_drag(gui, id)
+    if(other_window_blocking) then return false end
     GuiOptionsAddForNextWidget(gui, GUI_OPTION.IsDraggable)
     GuiOptionsAddForNextWidget(gui, GUI_OPTION.NoPositionTween)
     local test_x = mx-8
     local test_y = my-8
+
+    local old_interactive = interactive
+    set_interactive(gui, true)
     GuiButton(gui, get_id("drag_test"), test_x, test_y, "     ")
+    set_interactive(gui, old_interactive)
     local clicked, right_clicked, hovered, text_x, text_y, width, height = GuiGetPreviousWidgetInfo(gui)
+    window_active = window_active or clicked
     if(math.abs(text_x-test_x) > 4 or math.abs(text_y-test_y) > 4) then
         -- window.x = window.x+text_x-test_x-11
         -- window.y = window.y+text_y-test_y-9
@@ -98,21 +158,41 @@ function test_drag(gui, id)
     end
 end
 
-function make_window(base_id, base_x, base_y, width, height)
-    return {id = base_id,
-            x = ModSettingGet(mod_name.."."..base_id.."_x") or base_x,
-            y = ModSettingGet(mod_name.."."..base_id.."_y") or base_y,
-            width = ModSettingGet(mod_name.."."..base_id.."_width") or width,
-            height = ModSettingGet(mod_name.."."..base_id.."_height") or height,
-            show = ModSettingGet(mod_name.."."..base_id.."_show") or true,
-            hovered_frames=0,
-            x_scroll = 0}
+local windows = {}
+local grabbed = nil
+
+function make_window(base_id, base_x, base_y, width, height, show, title)
+    show = show or true
+    local window = {id = base_id,
+                    title = title,
+                    x = ModSettingGet(mod_name.."."..base_id.."_x") or base_x,
+                    y = ModSettingGet(mod_name.."."..base_id.."_y") or base_y,
+                    width = ModSettingGet(mod_name.."."..base_id.."_width") or width,
+                    height = ModSettingGet(mod_name.."."..base_id.."_height") or height,
+                    -- x = base_x,
+                    -- y = base_y,
+                    -- width = width,
+                    -- height = height,
+                    show = ModSettingGet(mod_name.."."..base_id.."_show"),
+                    hovered_frames=0,
+                    x_scroll = 0,
+                    x_scroll_target = 0}
+    if(window.show == nil) then
+        window.show = show
+    end
+    table.insert(windows, window)
+    return window
 end
 
-function start_window(gui, window)
-    if(not window.show) then return false end
+function start_window(gui, window, order)
+    if(not window.show) then
+        ModSettingSet(mod_name.."."..window.id.."_show", window.show)
+        return false
+    end
 
-    if(window.grabbed==-1) then
+    z_set_global(gui, -100*(#windows-order))
+
+    if(grabbed == window.id..-1) then
         if(not window.dragging) then
             drag_mx = mx-window.x
             drag_my = my-window.y
@@ -125,13 +205,13 @@ function start_window(gui, window)
     local sx = 0
     local sy = 0
     for i=0,3 do
-        if(window.grabbed == i) then
+        if(grabbed == window.id..i) then
             sx = (i+1)%4>=2 and 1 or -1
             sy =       i>=2 and 1 or -1
         end
     end
     for i=0,3 do
-        if(window.grabbed == i+4) then
+        if(grabbed == window.id..i+4) then
             if(i%2 == 0) then
                 sx = (i+1)%4>=2 and 1 or -1
             else
@@ -140,34 +220,38 @@ function start_window(gui, window)
         end
     end
 
-    if(window.grabbed ~= nil and 0 <= window.grabbed and window.grabbed < 8) then
-        if(not window.dragging) then
-            drag_mx = mx-sx*window.width
-            drag_my = my-sy*window.height
-            window.scale_mx = mx-window.x
-            window.scale_my = my-window.y
-        end
-
-        if(sx ~= 0) then
-            window.width = math.max(sx*(mx-drag_mx), window_min_width)
-            if(sx == -1) then
-                window.x = math.min(mx-window.scale_mx, drag_mx-window.scale_mx-window_min_width)
+    if(grabbed ~= nil) then
+        local grabbed_number = tonumber(string.match(grabbed, "[-0-9]+$"))
+        if(grabbed_number ~= nil and grabbed == window.id..grabbed_number and 0 <= grabbed_number and grabbed_number < 8) then
+            if(not window.dragging) then
+                drag_mx = mx-sx*window.width
+                drag_my = my-sy*window.height
+                window.scale_mx = mx-window.x
+                window.scale_my = my-window.y
             end
-        end
 
-        if(sy ~= 0) then
-            window.height = math.max(sy*(my-drag_my), window_min_height)
-            if(sy == -1) then
-                window.y = math.min(my-window.scale_my, drag_my-window.scale_my-window_min_height)
+            if(sx ~= 0) then
+                window.width = math.max(sx*(mx-drag_mx), window_min_width)
+                if(sx == -1) then
+                    window.x = math.min(mx-window.scale_mx, drag_mx-window.scale_mx-window_min_width)
+                end
             end
-        end
-        window.dragging = true
 
+            if(sy ~= 0) then
+                window.height = math.max(sy*(my-drag_my), window_min_height)
+                if(sy == -1) then
+                    window.y = math.min(my-window.scale_my, drag_my-window.scale_my-window_min_height)
+                end
+            end
+            window.dragging = true
+        end
     end
 
-    if(window.grabbed==nil) then
+    if(grabbed==nil) then
         window.dragging = false
     -- else
+        window.x = clamp(window.x, 0, gw)
+        window.y = clamp(window.y, 0, gh)
         ModSettingSet(mod_name.."."..window.id.."_x", window.x)
         ModSettingSet(mod_name.."."..window.id.."_y", window.y)
         ModSettingSet(mod_name.."."..window.id.."_width", window.width)
@@ -180,15 +264,39 @@ function start_window(gui, window)
     if(window.x_scroll_active) then
         height = height-8
     end
+
     GuiOptionsAdd(gui, GUI_OPTION.Layout_NoLayouting)
     GuiBeginScrollContainer(gui, get_id(window.id), window.x, window.y, width, window.height, false)
+    z_set_next_relative(gui, -1.0)
+    GuiText(gui, window.x, window.y-2, window.title)
     GuiOptionsRemove(gui, GUI_OPTION.Layout_NoLayouting)
-    GuiZSetForNextWidget(gui, 0.5)
-    if(window.grabbed ~= nil) then GuiOptionsAdd(gui, GUI_OPTION.NonInteractive) end
+    z_set_next_relative(gui, 0.5)
+    if(grabbed ~= nil) then
+        GuiOptionsAdd(gui, GUI_OPTION.NonInteractive)
+    else
+        GuiOptionsRemove(gui, GUI_OPTION.NonInteractive)
+    end
     GuiBeginScrollContainer(gui, get_id(window.id.."inner"), 0, drag_bar_height-2, width-8-2, height, true)
     GuiOptionsRemove(gui, GUI_OPTION.NonInteractive)
     max_x = 0
     max_y = 0
+    if(not other_window_blocking) then
+        set_interactive(gui, true)
+    else
+        set_interactive(gui, false)
+    end
+
+    local lx = window.x-1
+    local ly = window.y+drag_bar_height-2-1
+    local ux = window.x+window.width+6
+    local uy = window.y+drag_bar_height+height+6
+    inner_window_hovered = (lx <= mx and mx < ux and ly <= my and my < uy)
+
+    local clicked, right_clicked, hovered, x, y, width, height = GuiGetPreviousWidgetInfo(gui)
+    if(not other_window_blocking and (clicked or right_clicked)) then
+        window_active = true
+    end
+
     return true
 end
 
@@ -197,7 +305,7 @@ function extend_max_bound(x, y)
     max_y = math.max(y, max_y)
 end
 
-function end_window(gui, window)
+function end_window(gui, window, order)
     if(not window.show) then return end
     GuiLayoutEnd(gui, 0, 0, true, 0, 0)
     GuiEndScrollContainer(gui)
@@ -206,19 +314,26 @@ function end_window(gui, window)
     if(max_x > window.width) then
         local x_scroll_max = max_x-window.width
         window.x_scroll = math.min(window.x_scroll, x_scroll_max)
+        window.x_scroll_target = math.min(window.x_scroll_target, x_scroll_max)
         GuiColorSetForNextWidget(gui,1,1,1,0)
-        window.x_scroll = GuiSlider(gui, get_id(window.id.."_horizontal_scrollbar"), window.x-3, window.y+window.height-4, "",
-                                    window.x_scroll, 0, x_scroll_max, 0, 0, "", window.width-4)
+        local new_x_scroll = GuiSlider(gui, get_id(window.id.."_horizontal_scrollbar"), window.x-2.25, window.y+window.height-4, "",
+                                              window.x_scroll, 0, x_scroll_max, 0, 0, " ", window.width-4)
+        if(math.abs(new_x_scroll-window.x_scroll) > 1) then
+            window.x_scroll_target = new_x_scroll
+        end
+        window.x_scroll = lerp(window.x_scroll, window.x_scroll_target, 0.3)
+        local clicked, right_clicked, hovered, x, y, width, height = GuiGetPreviousWidgetInfo(gui)
+        if(not other_window_blocking and (clicked or right_clicked)) then
+            window_active = true
+        end
         window.x_scroll_active = true
     else
         window.x_scroll = 0
         window.x_scroll_active = false
     end
 
-    local drag_bar_x = window.x
-    local drag_bar_y = window.y
     GuiImageNinePiece(gui, get_id(window.id.."_move_bar"),
-                      drag_bar_x, drag_bar_y, window.width+4, drag_bar_height-2)
+                      window.x, window.y, window.width+4, drag_bar_height-2)
 
     if(window.hovered_frames <= 0) then
         window.hovered = nil
@@ -226,7 +341,7 @@ function end_window(gui, window)
     window.hovered_frames = window.hovered_frames-1
 
     local lx = window.x-1
-    local ly = drag_bar_y-1
+    local ly = window.y-1
     local cy = window.y+drag_bar_height
     local ux = window.x+window.width+6
     local uy = window.y+window.height+6
@@ -241,19 +356,21 @@ function end_window(gui, window)
     edge_hovered[3] = (math.abs(my-uy) < resize_tolerance
                            and lx-resize_tolerance < mx and mx < ux+resize_tolerance)
 
+    local window_hovered = (lx <= mx and mx < ux and ly <= my and my < uy)
+
     -- Debug lines for checking alignment
     -- GuiZSet(gui, -1.0)
-    -- draw_line(gui, lx,ly,ux,ly, 1.0, 1.0, 0)
-    -- draw_line(gui, ux,ly,ux,uy, 1.0, 1.0, 0)
-    -- draw_line(gui, ux,uy,lx,uy, 1.0, 1.0, 0)
-    -- draw_line(gui, lx,uy,lx,ly, 1.0, 1.0, 0)
+    -- draw_line(gui, lx,ly,ux,ly, 1.0, "white", 1.0, 0)
+    -- draw_line(gui, ux,ly,ux,uy, 1.0, "white", 1.0, 0)
+    -- draw_line(gui, ux,uy,lx,uy, 1.0, "white", 1.0, 0)
+    -- draw_line(gui, lx,uy,lx,ly, 1.0, "white", 1.0, 0)
 
-    -- draw_line(gui, lx,cy,ux,cy, 1.0, 1.0, 0)
+    -- draw_line(gui, lx,cy,ux,cy, 1.0, "white", 1.0, 0)
 
-    -- draw_line(gui, ux-9,ly,ux-9,cy, 1.0, 1.0, 0)
+    -- draw_line(gui, ux-9,ly,ux-9,cy, 1.0, "white", 1.0, 0)
 
-    -- draw_line(gui, lx,my,ux,my, 1.0, 1.0, 0)
-    -- draw_line(gui, mx,ly,mx,uy, 1.0, 1.0, 0)
+    -- draw_line(gui, lx,my,ux,my, 1.0, "white", 1.0, 0)
+    -- draw_line(gui, mx,ly,mx,uy, 1.0, "white", 1.0, 0)
     -- GuiZSet(gui, 0.0)
 
     local corner_hovered = false
@@ -279,11 +396,11 @@ function end_window(gui, window)
     end
 
     for i=0,3 do
-        if(window.grabbed == i or (window.hovered==i and window.grabbed==nil)) then
-            -- draw_line(gui, mx, my, mx+4, my+4,1,1,0,5,1)
-            -- draw_line(gui, mx, my, mx-4, my-4,1,1,0,5,1)
+        if(grabbed == window.id..i or (window.hovered==i and grabbed==nil)) then
+            -- draw_line(gui, mx, my, mx+4, my+4,1,"white",1,0,5,1)
+            -- draw_line(gui, mx, my, mx-4, my-4,1,"white",1,0,5,1)
 
-            GuiZSetForNextWidget(gui, -1.0)
+            z_set_next_relative(gui, -1.0)
             local resize_sprite = base_dir.."files/ui_gfx/resize.png"
             local im_w, im_h = GuiGetImageDimensions(gui, resize_sprite)
             local ix = mx+(i%2==1 and 2.5 or -5.5)-0.25
@@ -292,15 +409,15 @@ function end_window(gui, window)
             GuiImage(gui, get_id(window.id.."_resize_icon"), ix, iy, resize_sprite, 1, 1, 0, angle)
 
             if(test_drag(gui, window.id.."_corner_"..i)) then
-                window.grabbed = i
+                grabbed = window.id..i
             else
-                window.grabbed = nil
+                grabbed = nil
             end
         end
     end
     for i=0,3 do
-        if(window.grabbed == i+4 or (window.hovered==i+4 and window.grabbed==nil)) then
-            GuiZSetForNextWidget(gui, -1.0)
+        if(grabbed == window.id..i+4 or (window.hovered==i+4 and grabbed==nil)) then
+            z_set_next_relative(gui, -1.0)
             local resize_sprite = base_dir.."files/ui_gfx/resize.png"
             local ix = mx+(i%2==1 and -2.25 or 5.5)
             local iy = my+(i%2==1 and -6 or -2.5)
@@ -308,9 +425,9 @@ function end_window(gui, window)
             GuiImage(gui, get_id(window.id.."_resize_icon"), ix, iy, resize_sprite, 1, 1, 0, angle)
 
             if(test_drag(gui, window.id.."_edge_"..i)) then
-                window.grabbed = i+4
+                grabbed = window.id..i+4
             else
-                window.grabbed = nil
+                grabbed = nil
             end
         end
     end
@@ -323,15 +440,15 @@ function end_window(gui, window)
         window.hovered_frames = 2
     end
 
-    if(window.grabbed==-1 or (window.hovered==-1 and window.grabbed==nil)) then
+    if(grabbed == window.id..-1 or (window.hovered==-1 and grabbed==nil)) then
         if(test_drag(gui, window.id.."_drag")) then
-            window.grabbed = -1
+            grabbed = window.id..-1
         else
-            window.grabbed = nil
+            grabbed = nil
         end
     end
 
-    GuiZSetForNextWidget(gui, -1.0)
+    z_set_next_relative(gui, -1.0)
     local close_window_sprite = base_dir.."files/ui_gfx/close.png"
     local im_w, im_h = GuiGetImageDimensions(gui, close_window_sprite)
     local close_pressed = GuiImageButton(gui, get_id(window.id.."_close_button"),
@@ -339,5 +456,49 @@ function end_window(gui, window)
     GuiTooltip(gui, "close", "")
     if(close_pressed) then
         window.show = false
+    end
+
+    if(not other_window_blocking and window_hovered) then
+        other_window_blocking = true
+    end
+end
+
+top_window = -1
+
+function draw_windows(gui)
+    other_window_blocking = false
+    for i,window in ipairs(windows) do
+        window_active = false
+        if(start_window(gui, window, i) and window.func ~= nil) then
+            window.func(window)
+        end
+        end_window(gui, window)
+        window.index = i
+        --technically not right, since one window's id can be a substring of another's but good enough
+        if(window_active or grabbed ~= nil and string.sub(grabbed,1,#window.id) == window.id) then
+            gui_selected = new_gui_selected
+            new_gui_selected = nil
+            top_window = i
+            other_window_blocking = true
+        end
+    end
+
+    if(top_window ~= -1 and top_window ~= 1) then
+        table.insert(windows, 1, table.remove(windows, top_window))
+        top_window = -1
+    end
+    set_interactive(true)
+end
+
+function do_window_show_hide_button(gui, window, x, y, icon)
+    local pressed = GuiImageButton(gui, get_id((window.id).."show_hide_button"), x, y, "", icon)
+    local tooltip = "Show "..window.title
+    if(window.show) then
+        tooltip = "Hide "..window.title
+    end
+    GuiTooltip(gui, tooltip, "")
+    if(pressed) then
+        window.show = not window.show
+        top_window = window.index
     end
 end
