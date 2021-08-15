@@ -7,6 +7,7 @@ init_debugger = function()
     local current_node = nil
     local current_explanation = ""
     local shot_type = "root"
+    local timeout_frames = 0
 
     local removed_actions = {}
     local inserted_actions = {}
@@ -167,10 +168,10 @@ init_debugger = function()
         if(c.last_copy == nil or copy_c or cast_state_maybe_changed) then
             event.c = {}
             ConfigGunActionInfo_Copy(c, event.c)
-            c.last_copy = event.c or c
+            c.last_copy = event.c
             cast_state_maybe_changed = false
         else
-            event.c = c.last_copy or c
+            event.c = c.last_copy
         end
         table.insert(cast_history, event)
     end
@@ -192,8 +193,9 @@ init_debugger = function()
     EndProjectile = function()
         current_projectile = ""
     end
-    BeginTriggerTimer = function(timeout_frames)
+    BeginTriggerTimer = function(frames)
         shot_type = "timer"
+        timeout_frames = frames
     end
     BeginTriggerHitWorld = function()
         shot_type = "trigger"
@@ -233,6 +235,9 @@ init_debugger = function()
         c = shot.state
 
         c.shot_type = shot_type
+        if(shot_type == "timer") then
+            c.timer = timeout_frames
+        end
         c.parent_projectile = current_projectile
         c.root_node = current_node
 
@@ -246,6 +251,8 @@ init_debugger = function()
         draw_actions( shot.num_of_cards_to_draw, instant_reload_if_empty )
         register_action( shot.state )
         SetProjectileConfigs()
+
+        make_snapshot("register_action", {}, true)
 
         c = c_old
     end
@@ -352,7 +359,7 @@ init_debugger = function()
             cast_state_maybe_changed = true
             node.event_index = #cast_history
             local ret = action.original_action(recursion_level, iteration)
-            make_snapshot("action_end", {recursion_level=recursion_level, iteration=iteration})
+            make_snapshot("action_end", {recursion_level=recursion_level, iteration=iteration}, true)
             node.end_event_index = #cast_history
             current_node = node.parent
             current_explanation = node.explanation
@@ -680,7 +687,7 @@ init_debugger = function()
             _handle_reload()
             -- draw_shot(root_shot, false)
             -- move_hand_to_discarded()
-            make_snapshot("cast_done", {})
+            make_snapshot("cast_done", {}, true)
             cast_limit = cast_limit - 1
             if(cast_limit == 0) then
                 break

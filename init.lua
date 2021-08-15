@@ -22,16 +22,17 @@ local config_window     = make_window(    "config_window", 390, 150, 230, 180, f
 local tree_window       = make_window(      "tree_window",  10,  54, 300, 170, false,    "Flowchart")
 local cast_state_window = make_window("cast_state_window", 320,  54, 300, 170, false,  "Cast States")
 
-local cast_states = {}
+local current_cast_states = {}
+local final_cast_states = {}
+local cast_states = final_cast_states
 local cast_state_collapsed = {}
+local use_final_cast_state = ModSettingGet(mod_name..".use_final_cast_state") or true
 
 local current_i = 0
 local current_i_target = nil
 local playing = true
 local playback_timer = 20
 local looping = true
-
-local current_c = nil
 
 local last_wand_deck
 local last_wand_stats
@@ -435,16 +436,20 @@ function draw_playback(base_x, base_y, width, mx, my)
     local x = base_x+bar_width
     x = x+button_spacing
     local prev_pressed = GuiImageButton(gui, get_id("playback_previous"), x, base_y-3.5, "", base_dir.."files/ui_gfx/prev.png")
+    get_previous_widget_info()
     GuiTooltip(gui, "previous", "")
     x = x+button_spacing+button_width
     local play_pause_pressed = GuiImageButton(gui, get_id("playback_play"), x, base_y-3.5, "", play_pause)
+    get_previous_widget_info()
     GuiTooltip(gui, play_pause_text, "")
     x = x+button_spacing+button_width
     local next_pressed = GuiImageButton(gui, get_id("playback_next"), x, base_y-3.5, "", base_dir.."files/ui_gfx/next.png")
+    get_previous_widget_info()
     GuiTooltip(gui, "next", "")
     x = x+button_spacing+button_width
     if(not looping) then GuiColorSetForNextWidget( gui, 0.5, 0.5, 0.5, 0.5) end
     local loop_pressed = GuiImageButton(gui, get_id("playback_loop"), x, base_y-3.5, "", base_dir.."files/ui_gfx/loop.png")
+    get_previous_widget_info()
     GuiTooltip(gui, loop_text, "")
 
     if(play_pause_pressed) then
@@ -487,8 +492,9 @@ function draw_playback(base_x, base_y, width, mx, my)
               1.0, "white", 1.0, 0)
     GuiImage(gui, get_id("playback_indicator"), base_x+bar_width*(current_i-1)/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png",
              1, 1)
-    if(ui_hover) then
+    if(ui_hover and not other_window_blocking) then
         local clicked = GuiImageButton(gui, get_id("playback_click_blocker"), base_x+bar_width*mouse_t/#cast_history-50.5, base_y-50.5, "", base_dir.."files/ui_gfx/invisible_button.png")
+        get_previous_widget_info()
         GuiText(gui, base_x+bar_width*mouse_t/#cast_history, base_y, math.ceil(mouse_t).."/"..#cast_history)
         GuiImage(gui, get_id("playback_hover_indicator"), base_x+bar_width*mouse_t/#cast_history-3.5, base_y-3.5, base_dir.."files/ui_gfx/big_dot.png", 0.5, 1)
        if(clicked) then
@@ -726,8 +732,10 @@ function draw_cast_state(state, x, y)
     local width = 0
     local height = 0
 
-    if(state.current.projectiles ~= nil and #state.current.projectiles > 0)  then
-        width = draw_text_image_list(format_projectiles(state.current.projectiles), x+6, y)+10
+    local c = state.current
+
+    if(c.projectiles ~= nil and #c.projectiles > 0)  then
+        width = draw_text_image_list(format_projectiles(c.projectiles), x+6, y)+10
     else
         text = cast_state_collapsed[state.c] and "no proj." or "no projectiles"
         width = draw_text_image_list(text, x+6, y)+10
@@ -736,7 +744,7 @@ function draw_cast_state(state, x, y)
     height = height+8
     if(not cast_state_collapsed[state.c]) then
         for i, p in ipairs(cast_state_properties) do
-            local raw_value = p.get(state.current)
+            local raw_value = p.get(c)
             if(raw_value ~= nil and (type(raw_value) ~= "table" or #raw_value > 0) and raw_value ~= p.default) then
                 local value
                 if(p.format ~= nil) then
@@ -797,6 +805,20 @@ function draw_cast_state(state, x, y)
         local image = get_projectile_icon(state.c.parent_projectile)
         local im_w, im_h = GuiGetImageDimensions(gui, image, 0.5)
         GuiImage(gui, get_id(), base_x-0.5*im_w, base_y-0.5*im_h, image, 1, 0.5)
+
+        local description = ""
+        local trigger_name = ""
+        if(state.c.shot_type == "timer") then
+            trigger_name = "a "..state.c.timer.." frame timer"
+        elseif(state.c.shot_type == "trigger") then
+            trigger_name = "a trigger"
+        elseif(state.c.shot_type == "death_trigger") then
+            trigger_name = "an expiration trigger"
+        else
+            trigger_name = "an unknown trigger type"
+        end
+        GuiTooltip(gui, state.c.parent_projectile.." with "..trigger_name, description)
+
         z_set_next_relative(gui, -1.0)
         local image = base_dir.."files/ui_gfx/"..state.c.shot_type..".png"
         local im_w, im_h = GuiGetImageDimensions(gui, image, 0.5)
@@ -1057,12 +1079,12 @@ function step_history(steps, no_instant_step, skip_actions)
             pop_action(10)
             playback_wait = 10
         elseif(e.type == "new_cast_state") then
-            if(cast_states[e.info.c_old_final] == nil) then
-                cast_states[e.info.c_old_final] = {c = e.info.c_old_final, current = e.info.c_old, children = {}}
+            if(current_cast_states[e.info.c_old_final] == nil) then
+                current_cast_states[e.info.c_old_final] = {c = e.info.c_old_final, current = e.info.c_old, children = {}}
             else
-                cast_states[e.info.c_old_final].current = e.info.c_old
+                current_cast_states[e.info.c_old_final].current = e.info.c_old
             end
-            table.insert(cast_states[e.info.c_old_final].children, e.c_final)
+            table.insert(current_cast_states[e.info.c_old_final].children, e.c_final)
             if(not no_instant_step) then steps = steps+1 end
         elseif(e.type == "card_move") then
             local source = get_deck(e.info.source)
@@ -1092,16 +1114,18 @@ function step_history(steps, no_instant_step, skip_actions)
             end
             deck = sorted_deck
             playback_wait = 5
+        -- elseif(e.type == "register_action") then
         -- elseif(e.type == "cast_done") then
-        --     -- table.sort(deck, function(a,b) return e.info.order[a.deck_index] < e.info.order[b.deck_index] end)
-        --     playing = false
+        --     update_reload_times(e.c)
+        --     -- -- table.sort(deck, function(a,b) return e.info.order[a.deck_index] < e.info.order[b.deck_index] end)
+        --     -- playing = false
         else
             if(not no_instant_step) then steps = steps+1 end
         end
-        if(cast_states[e.c_final] == nil) then
-            cast_states[e.c_final] = {c=e.c_final, children = {}}
+        if(current_cast_states[e.c_final] == nil) then
+            current_cast_states[e.c_final] = {c=e.c_final, children = {}}
         end
-        cast_states[e.c_final].current = e.c
+        current_cast_states[e.c_final].current = e.c
         current_i = current_i + 1
     end
 end
@@ -1119,7 +1143,7 @@ function reset_cast_except_action_sprites()
     hand = {}
     deck = {}
 
-    cast_states = {}
+    current_cast_states = {}
 
     if(start_deck ~= nil) then
         for i, card in ipairs(start_deck) do
@@ -1411,6 +1435,20 @@ function OnWorldPostUpdate()
             for i, t in ipairs(action_trees) do
                 process_node(t)
             end
+
+            final_cast_states = {}
+            for i, e in ipairs(cast_history) do
+                if(e.type == "new_cast_state") then
+                    if(final_cast_states[e.info.c_old_final] == nil) then
+                        final_cast_states[e.info.c_old_final] = {c = e.info.c_old_final, current = e.info.c_old_final, children = {}}
+                    end
+                    table.insert(final_cast_states[e.info.c_old_final].children, e.c_final)
+                end
+                if(final_cast_states[e.c_final] == nil) then
+                    final_cast_states[e.c_final] = {c=e.c_final, current=e.c_final, children = {}}
+                end
+            end
+
             always_cast_cards = {}
             start_deck = {}
             cast_state_collapsed = {}
@@ -1435,9 +1473,6 @@ function OnWorldPostUpdate()
             end
 
             if(show_animation or cast_state_window.show) then
-                if(show_animation) then
-                    current_i_target = draw_playback(10, gh*0.9+5, gw-20, mx, my)
-                end
                 if(current_i_target == nil) then
                     current_i_target = current_i
                 end
@@ -1551,7 +1586,26 @@ function OnWorldPostUpdate()
                 for i, t in ipairs(action_trees) do
                     table.insert(root_cast_states, t.c)
                 end
-                draw_cast_states(root_cast_states, -window.x_scroll, 8)
+
+                local x = -window.x_scroll
+                local y = 0
+
+                if(use_final_cast_state) then
+                    cast_states = final_cast_states
+                else
+                    cast_states = current_cast_states
+                end
+
+                local text = use_final_cast_state and "Showing final cast state (click to toggle)" or "Showing current cast state (click to toggle)"
+                local clicked, righ_clicked = GuiButton(gui, get_id("final_cast_state_button"), x, y, text)
+                local _, __, hovered, text_x, text_y, text_width, text_height = get_previous_widget_info(gui)
+                y = y+text_height+4
+                if(clicked) then
+                    use_final_cast_state = not use_final_cast_state
+                    ModSettingSet(mod_name..".use_final_cast_state", use_final_cast_state)
+                end
+
+                draw_cast_states(root_cast_states, -window.x_scroll, y)
             end
 
             config_window.func = function(window)
@@ -1559,6 +1613,14 @@ function OnWorldPostUpdate()
             end
 
             draw_windows(gui)
+
+            if(show_animation) then
+                current_i_target = draw_playback(10, gh*0.9+5, gw-20, mx, my)
+                if(window_active) then
+                    gui_selected = new_gui_selected
+                    new_gui_selected = nil
+                end
+            end
         end
     end
 end
