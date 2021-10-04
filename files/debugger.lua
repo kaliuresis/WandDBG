@@ -1,5 +1,11 @@
 init_debugger = function()
-    dofile_once( "data/scripts/gun/gun.lua" );
+    dofile( "data/scripts/gun/gun.lua" );
+
+    --Undo the modifications from Spell Lab
+    function register_action( state )
+        state.reload_time = current_reload_time
+        ConfigGunActionInfo_PassToGame( state )
+    end
 
     local cast_history = {}
 
@@ -35,6 +41,7 @@ init_debugger = function()
         for i,action in ipairs(discarded) do
             table.insert(deck, action)
         end
+        discarded = copy_table(discarded)
         while #discarded > 0 do
             table.remove(discarded, 1)
         end
@@ -81,6 +88,7 @@ init_debugger = function()
                 end
             end
         end
+        hand = copy_table(hand)
         while #hand > 0 do
             if hand[1].permanently_attached == nil then
                 table.remove(hand, 1)
@@ -103,6 +111,9 @@ init_debugger = function()
             -- print( "removed " .. v.id .. " from deck" )
             table.insert( discarded, v )
         end
+
+        hand = copy_table(hand)
+        deck = copy_table(deck)
 
         while #hand > 0 do
             table.remove(hand, 1)
@@ -431,9 +442,9 @@ init_debugger = function()
             end
         end
 
-        for i, action in ipairs(deck) do
-            modify_action(action, false)
-        end
+        -- for i, action in ipairs(deck) do
+        --     modify_action(action, false)
+        -- end
 
         table.insert = function(t, i)
             local table_name
@@ -596,9 +607,11 @@ init_debugger = function()
             return components
         end
         EntityGetFirstComponent                  = function(entity_id, component_type_name, tag)
-            for i, c in ipairs(entity_id.components) do
-                if(c.type_name == component_type_name and (tag==nil or string.find(","..c.tags, ","..tag..","))) then
-                    return c
+            if(entity_id) then
+                for i, c in ipairs(entity_id.components) do
+                    if(c.type_name == component_type_name and (tag==nil or string.find(","..c.tags, ","..tag..","))) then
+                        return c
+                    end
                 end
             end
             return nil
@@ -613,9 +626,9 @@ init_debugger = function()
         end
         EntityGetTransform                       = function(entity_id) return 0,0,0,1,1 end
         EntityLoad                               = function(entity_id) end
-        EntityGetAllChildren                     = function(entity_id) return entity_id.children end
-        EntityGetName                            = function(entity_id) return entity_id.name end
-        EntityHasTag                             = function(entity_id, tag) return string.find(","..entity_id.tags, ","..tag..",") end
+        EntityGetAllChildren                     = function(entity_id) if(entity_id) then return entity_id.children end end
+        EntityGetName                            = function(entity_id) if(entity_id) then return entity_id.name end end
+        EntityHasTag                             = function(entity_id, tag) if(entity_id) then return string.find(","..entity_id.tags, ","..tag..",") end end
         ComponentGetValue2                       = function(component_id, variable_name) return component_id[variable_name] end
         ComponentSetValue2                       = function(component_id, variable_name, value) component_id[variable_name] = value end
 
@@ -674,7 +687,7 @@ init_debugger = function()
                 action_clone.uses_remaining   = -1
                 action_clone.sprite = action.sprite
 
-                modify_action(action)
+                modify_action(action_clone, true)
 
                 handle_mana_addition(action_clone)
                 ac_play_actions(action_clone)

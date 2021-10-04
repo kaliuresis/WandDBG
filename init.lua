@@ -8,8 +8,8 @@ dofile_once(base_dir .. "files/ui.lua");
 
 local gui = GuiCreate()
 
-action_table, projectile_table, extra_entity_table = SPELL_INFO.get_spell_info()
-debug_wand = init_debugger()
+debug_wand = nil
+action_table, projectile_table, extra_entity_table = nil
 -- actions_list, projectile_table, extra_entity_table = {}, {}, {}
 dofile_once(base_dir .. "files/cast_state_properties.lua");
 
@@ -68,6 +68,7 @@ local options = {
     --                                                                             slice       = 1 }},
     -- {id="zeta_options", name="Zeta Options", type="custom", value = {}},
     {id="frame_number", name="Frame Number", type="text_number", value = 0, integer=true},
+    {id="show_with_inventory", name="Show Windows when Inventory is Open", type="boolean", value = false, always_override = true},
 }
 
 local config = {}
@@ -879,6 +880,9 @@ end
 function draw_config(x, y, window_x, window_y)
     for i, option in ipairs(options) do
         local option_changed = false
+        if(option.always_override) then
+            option.override = option.always_override
+        end
 
         local button_text = option.name..": "
         if(not option.override) then
@@ -962,6 +966,7 @@ function draw_config(x, y, window_x, window_y)
                 if(option.override) then
                     if(option.value) then
                         option.override = nil
+                        option.value = false
                     else
                         option.value = true
                     end
@@ -1102,10 +1107,13 @@ function step_history(steps, no_instant_step, skip_actions)
             playback_wait = 5
         elseif(e.type == "delete_ac_card") then
             local source = get_deck(e.info.source)
-            local sprite = source[e.info.index].sprite
-            table.remove(source, e.info.index)
-            --TODO: fade this out
-            EntityKill(sprite)
+            local sprite = source[e.info.index]
+            if(sprite) then
+                sprite = sprite.sprite
+                table.remove(source, e.info.index)
+                --TODO: fade this out
+                EntityKill(sprite)
+            end
             playback_wait = 5
         elseif(e.type == "order_deck") then
             local sorted_deck = {}
@@ -1153,6 +1161,13 @@ function reset_cast_except_action_sprites()
 end
 
 function OnWorldPostUpdate()
+    -- we wait to initialize these for compatibility with mods (*cough* Goki's things *cough*)
+    -- that wait until OnModPostInit to append some stuff to gun_actions.lua
+    if(not debug_wand) then
+        action_table, projectile_table, extra_entity_table = SPELL_INFO.get_spell_info()
+        debug_wand = init_debugger()
+    end
+
     player = EntityGetWithTag( "player_unit" )[1];
     local held_wand
     local m1
@@ -1282,6 +1297,12 @@ function OnWorldPostUpdate()
     do_window_show_hide_button(gui, tree_window, gw-16-64, gh-16, base_dir.."files/ui_gfx/tree_icon.png")
     do_window_show_hide_button(gui, cast_state_window, gw-16-48, gh-16, base_dir.."files/ui_gfx/cast_state_icon.png")
     do_window_show_hide_button(gui, config_window, gw-16-16, gh-16, base_dir.."files/ui_gfx/config_icon.png")
+
+    local reset_windows_pressed = GuiImageButton(gui, get_id("reset_windows_button"), gw-16-80, gh-16, "", base_dir.."files/ui_gfx/reset_windows_icon.png")
+    GuiTooltip(gui, "Reset Window Layout", "")
+    if(reset_windows_pressed) then
+        reset_windows()
+    end
 
     local wand_deck = {}
     local n_always_casts = 0
@@ -1612,7 +1633,9 @@ function OnWorldPostUpdate()
                 draw_config(-window.x_scroll, 0, window.x, window.y)
             end
 
-            draw_windows(gui)
+            if(config.show_with_inventory or not GameIsInventoryOpen()) then
+                draw_windows(gui)
+            end
 
             if(show_animation) then
                 current_i_target = draw_playback(10, gh*0.9+5, gw-20, mx, my)

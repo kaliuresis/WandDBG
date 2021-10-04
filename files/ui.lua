@@ -165,6 +165,10 @@ function make_window(base_id, base_x, base_y, width, height, show, title)
     show = show or true
     local window = {id = base_id,
                     title = title,
+                    default_x = base_x,
+                    default_y = base_y,
+                    default_width = width,
+                    default_height = height,
                     x = ModSettingGet(mod_name.."."..base_id.."_x") or base_x,
                     y = ModSettingGet(mod_name.."."..base_id.."_y") or base_y,
                     width = ModSettingGet(mod_name.."."..base_id.."_width") or width,
@@ -489,6 +493,16 @@ function draw_windows(gui)
     end
     set_interactive(true)
 end
+
+function reset_windows()
+    for i,window in ipairs(windows) do
+        window.x = window.default_x
+        window.y = window.default_y
+        window.width = window.default_width
+        window.height = window.default_height
+    end
+end
+
 
 function do_window_show_hide_button(gui, window, x, y, icon)
     local pressed = GuiImageButton(gui, get_id((window.id).."show_hide_button"), x, y, "", icon)

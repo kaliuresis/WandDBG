@@ -1,6 +1,16 @@
 SPELL_INFO = {}
 function SPELL_INFO.get_spell_info()
+    --we don't personally need these, but Goki's things does some jank
+    local original_BeginProjectile               = BeginProjectile
+    local original_OnActionPlayed                = OnActionPlayed
+    local original_Reflection_RegisterProjectile = Reflection_RegisterProjectile
+
+    BeginProjectile               = BeginProjectile               or (function() end)
+    OnActionPlayed                = OnActionPlayed                or (function() end)
+    Reflection_RegisterProjectile = Reflection_RegisterProjectile or (function() end)
+
     dofile( "data/scripts/gun/gun.lua" );
+    reflecting = true
 
     local action_table = {}
     local projectile_table = {}
@@ -78,6 +88,10 @@ function SPELL_INFO.get_spell_info()
 
     GlobalsGetValue = original_GlobalsGetValue
     GlobalsSetValue = original_GlobalsSetValue
+
+    BeginProjectile               = original_BeginProjectile
+    -- OnActionPlayed                = original_OnActionPlayed
+    Reflection_RegisterProjectile = original_Reflection_RegisterProjectile
 
     return action_table, projectile_table, extra_entity_table
 end
