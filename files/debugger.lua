@@ -1,4 +1,5 @@
 init_debugger = function()
+    debugging = true
     dofile( "data/scripts/gun/gun.lua" );
 
     --Undo the modifications from Spell Lab
@@ -545,7 +546,7 @@ init_debugger = function()
                  hp = wand_stats.hp, max_hp = wand_stats.max_hp,
                  damage_multipliers = wand_stats.damage_multipliers,
                  n_stainless = wand_stats.n_stainless,
-                 ambrosia = wand_stats.has_ambrosia,
+                 ambrosia = wand_stats.ambrosia,
                 },
                 {type_name = "WalletComponent", tags="",
                  mHasReachedInf = 0, mMoneyPrevFrame = wand_stats.money, money = wand_stats.money, money_spent = 0},
@@ -619,7 +620,7 @@ init_debugger = function()
         EntityGetFirstComponentIncludingDisabled = EntityGetFirstComponent
         EntityInflictDamage = function(entity, amount, damage_type, description, ragdoll_fx, impulse_x, impulse_y, entity_who_is_responsible, world_pos_x, world_pos_y, knockback_force)
             local comp = EntityGetFirstComponent(entity, "DamageModelComponent")
-            if(comp ~= nil) then
+            if(comp ~= nil and not comp.ambrosia) then
                 local type = string.lower(string.sub(damage_type, 8)) -- a bit hacky, but I think this works
                 comp.hp = comp.hp-amount*comp.damage_multipliers[type]*math.pow(0.5, comp.n_stainless)
             end

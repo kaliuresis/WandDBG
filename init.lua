@@ -1189,7 +1189,7 @@ function OnWorldPostUpdate()
                                         radioactive = 1,
                                         slice       = 1 }
     local player_n_stainless = 0
-    local player_has_ambrosia = 0
+    local player_has_ambrosia = false
     local player_has_unlimited_spells = false
     if(player ~= nil) then
         local inventory = EntityGetFirstComponent(player, "Inventory2Component")
@@ -1211,11 +1211,18 @@ function OnWorldPostUpdate()
             end
         end
 
-        local game_effects = EntityGetComponent(entity_id, "GameEffectComponent")
-        if(game_effects ~= nil) then
-            for i, e in ipairs(game_effects) do
-                if(ComponentGetValue2(e, "effect") == "STAINLESS_ARMOR") then
-                    player_n_stainless = player_n_stainless + 1
+        local player_children = EntityGetAllChildren(player)
+        for c, child in ipairs(player_children) do
+            local game_effects = EntityGetComponent(child, "GameEffectComponent")
+            if(game_effects ~= nil) then
+                for i, e in ipairs(game_effects) do
+                    if(ComponentGetValue2(e, "effect") == "STAINLESS_ARMOUR") then
+                        player_n_stainless = player_n_stainless + 1
+                    end
+
+                    if(ComponentGetValue2(e, "effect") == "PROTECTION_ALL") then
+                        player_has_ambrosia = true
+                    end
                 end
             end
         end
@@ -1409,8 +1416,8 @@ function OnWorldPostUpdate()
             wand_stats.every_other_state = config.every_other_state
             wand_stats.money = config.money or 0
             wand_stats.damage_multipliers = config.damage_multipliers or player_damage_multipliers
-            wand_stats.n_stainless = config.n_stainless or player_n_stainless
-            wand_stats.ambrosia = config.ambrosia~=nil and config.ambrosia or player_has_ambrosia
+            wand_stats.n_stainless = config.n_stainless and config.n_stainless or player_n_stainless
+            wand_stats.ambrosia = config.ambrosia==nil and player_has_ambrosia or config.ambrosia
             -- wand_stats.zeta_options = string.gmatch(config.zeta_options, "[^,]")
             wand_stats.zeta_options = nil
             wand_stats.frame_number = config.frame_number
