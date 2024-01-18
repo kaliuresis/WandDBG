@@ -563,16 +563,16 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
         local sprite = tree.action.sprite
         local bg_sprite = get_bg_sprite(tree.action.type)
         local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
-        GuiImage(gui, get_id("node_background"..tostring(tree)), x-im_w/2, y-im_h/2, bg_sprite,
+        gui_image_bounded(gui, get_id("node_background"..tostring(tree)), x-im_w/2, y-im_h/2, bg_sprite,
                                                       1.0, scale, 0, 0)
-        local clicked, right_clicked, hovered, text_x, text_y, width, height = get_previous_widget_info(gui)
+        local clicked, right_clicked, hovered, text_x, text_y, width, height = get_previous_widget_info_bounded(gui)
 
         local foreground_scale = scale
         if(hovered) then
             foreground_scale = 1.5*foreground_scale
         end
         im_w, im_h = GuiGetImageDimensions(gui, sprite, foreground_scale)
-        GuiImage(gui, get_id("node_foreground"..tostring(tree)), x-im_w/2, y-im_h/2, sprite,
+        gui_image_bounded(gui, get_id("node_foreground"..tostring(tree)), x-im_w/2, y-im_h/2, sprite,
                  1.0, foreground_scale, 0, 0)
         if(clicked) then
             current_i_target = tree.event_index
@@ -608,6 +608,10 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
         draw_spline(gui, x_start, y_start, x_start+0.5*x_spacing, y_start,
                     x_end-0.5*x_spacing, y_end, x_end, y_end,
                     0.5, color, 1.0, 0, 4, 1)
+    end
+
+    if(tree.width and tree.height and (x+tree.width < bound_x_min or x > bound_x_max or y+tree.height < bound_y_min or y > bound_y_max)) then
+        return tree.width, tree.height
     end
 
     local width = x_spacing
@@ -673,6 +677,8 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
         width = 8+max_child_width
         height = y_spacing
     end
+    tree.width = width
+    tree.height = height
     return width, height
 end
 
@@ -715,7 +721,7 @@ function draw_text_image_list(value, x, y)
                 GuiText(gui, x, y, t)
             else
                 item_width, item_height = GuiGetImageDimensions(gui, t[1], 0.5)
-                GuiImage(gui, get_id, x, y+1, t[1], 1, 0.5)
+                gui_image_bounded(gui, get_id, x, y+1, t[1], 1, 0.5)
                 GuiTooltip(gui, t[2], "")
                 item_width = item_width+1
             end
@@ -732,6 +738,10 @@ function draw_cast_state(state, x, y)
     local base_y = y
     local width = 0
     local height = 0
+
+    if(state.width and state.height and (x+state.width < bound_x_min or x > bound_x_max or y+state.height < bound_y_min or y > bound_y_max)) then
+        return state.width, state.height
+    end
 
     local c = state.current
 
@@ -767,64 +777,74 @@ function draw_cast_state(state, x, y)
     --     height = 8
     end
     height = height+4
+
     -- draw_box(gui, x, base_y, width, height, 1, 1)
     --invisible image to get offsets
     GuiImage(gui, get_id("cast_state_offset_"..tostring(state)), 0, 0, base_dir .. "files/ui_gfx/line_dot_white.png", 0.0)
     local clicked, right_clicked, hovered, x0, y0, widget_width, widget_height = get_previous_widget_info(gui)
 
-    GuiOptionsAddForNextWidget(gui, GUI_OPTION.ForceFocusable)
-    z_set_next_relative(gui, 1.0)
+    local widg_x = x0+math.max(x, bound_x_min)
+    local widg_y = y0+math.max(base_y, bound_y_min)
+    local widg_w = x0+math.min(width+x, bound_x_max)-widg_x
+    local widg_h = y0+math.min(height+base_y, bound_y_max)-widg_y
+    if(widg_w > 0 and widg_h > 0) then
 
-    local nine_piece = base_dir.."files/ui_gfx/9piece_outline.png"
-    local highlight_nine_piece = base_dir.."files/ui_gfx/9piece_outline_highlight.png"
-    if(other_window_blocking or not inner_window_hovered) then
-        highlight_nine_piece = nine_piece
-    end
-    GuiImageNinePiece(gui, get_id("cast_state_collapse_button_"..tostring(state)), x0+x, y0+base_y, width, height, 1,
-                      nine_piece, highlight_nine_piece)
-    local clicked, right_clicked, hovered, widget_x, widget_y, widget_width, widget_height = get_previous_widget_info(gui)
-    if(hovered) then
-        -- GuiOptionsAddForNextWidget(gui, GUI_OPTION.Layout_NoLayouting)
-        -- GuiImage(gui, get_id(), mx, my, base_dir .. "files/ui_gfx/line_dot_white.png", 1, 10, 10)
-        GuiOptionsAddForNextWidget(gui, GUI_OPTION.Layout_NoLayouting)
-        -- GuiText(gui, mx, my, "width = "..width..", height = "..height.."; widget_width = "..widget_width..", widget_height = "..widget_height)
-        local tooltip_text = cast_state_collapsed[state.c] and "expand" or "collapse"
-        GuiText(gui, mx, my, tooltip_text)
-    end
-    if(clicked) then
-        cast_state_collapsed[state.c] = not cast_state_collapsed[state.c]
-    end
-    local image = base_dir.."files/ui_gfx/black_circle.png"
-    local im_w, im_h = GuiGetImageDimensions(gui, image, 1)
-    GuiImage(gui, get_id(), base_x-0.5*im_w, base_y-0.5*im_h, image, 1, 1)
-    z_set_next_relative(gui, -0.5)
-    if(state.c.shot_type == "root") then
-        local cast_number = state.c.root_node.cast_number or "error"
-        local im_w, im_h = GuiGetTextDimensions(gui, cast_number)
-        GuiText(gui, base_x-0.5*im_w+0.5, base_y-0.5*im_h, cast_number)
-    else
-        local image = get_projectile_icon(state.c.parent_projectile)
-        local im_w, im_h = GuiGetImageDimensions(gui, image, 0.5)
-        GuiImage(gui, get_id(), base_x-0.5*im_w, base_y-0.5*im_h, image, 1, 0.5)
+        GuiOptionsAddForNextWidget(gui, GUI_OPTION.ForceFocusable)
+        z_set_next_relative(gui, 1.0)
 
-        local description = ""
-        local trigger_name = ""
-        if(state.c.shot_type == "timer") then
-            trigger_name = "a "..state.c.timer.." frame timer"
-        elseif(state.c.shot_type == "trigger") then
-            trigger_name = "a trigger"
-        elseif(state.c.shot_type == "death_trigger") then
-            trigger_name = "an expiration trigger"
-        else
-            trigger_name = "an unknown trigger type"
+        local nine_piece = base_dir.."files/ui_gfx/9piece_outline.png"
+        local highlight_nine_piece = base_dir.."files/ui_gfx/9piece_outline_highlight.png"
+        if(other_window_blocking or not inner_window_hovered) then
+            highlight_nine_piece = nine_piece
         end
-        GuiTooltip(gui, state.c.parent_projectile.." with "..trigger_name, description)
+        GuiImageNinePiece(gui, get_id("cast_state_collapse_button_"..tostring(state)), widg_x, widg_y, widg_w, widg_h, 1,
+                          nine_piece, highlight_nine_piece)
+        local clicked, right_clicked, hovered, widget_x, widget_y, widget_width, widget_height = get_previous_widget_info(gui)
+        if(hovered) then
+            -- GuiOptionsAddForNextWidget(gui, GUI_OPTION.Layout_NoLayouting)
+            -- GuiImage(gui, get_id(), mx, my, base_dir .. "files/ui_gfx/line_dot_white.png", 1, 10, 10)
+            GuiOptionsAddForNextWidget(gui, GUI_OPTION.Layout_NoLayouting)
+            -- GuiText(gui, mx, my, "width = "..width..", height = "..height.."; widget_width = "..widget_width..", widget_height = "..widget_height)
+            local tooltip_text = cast_state_collapsed[state.c] and "expand" or "collapse"
+            GuiText(gui, mx, my, tooltip_text)
+        end
+        if(clicked) then
+            cast_state_collapsed[state.c] = not cast_state_collapsed[state.c]
+        end
+        local image = base_dir.."files/ui_gfx/black_circle.png"
+        local im_w, im_h = GuiGetImageDimensions(gui, image, 1)
+        GuiImage(gui, get_id(), base_x-0.5*im_w, base_y-0.5*im_h, image, 1, 1)
+        z_set_next_relative(gui, -0.5)
+        if(state.c.shot_type == "root") then
+            local cast_number = state.c.root_node.cast_number or "error"
+            local im_w, im_h = GuiGetTextDimensions(gui, cast_number)
+            GuiText(gui, base_x-0.5*im_w+0.5, base_y-0.5*im_h, cast_number)
+        else
+            local image = get_projectile_icon(state.c.parent_projectile)
+            local im_w, im_h = GuiGetImageDimensions(gui, image, 0.5)
+            gui_image_bounded(gui, get_id(), base_x-0.5*im_w, base_y-0.5*im_h, image, 1, 0.5)
 
-        z_set_next_relative(gui, -1.0)
-        local image = base_dir.."files/ui_gfx/"..state.c.shot_type..".png"
-        local im_w, im_h = GuiGetImageDimensions(gui, image, 0.5)
-        GuiImage(gui, get_id(), base_x-0.5*im_w-3, base_y-0.5*im_h-3, image, 1, 0.5)
+            local description = ""
+            local trigger_name = ""
+            if(state.c.shot_type == "timer") then
+                trigger_name = "a "..state.c.timer.." frame timer"
+            elseif(state.c.shot_type == "trigger") then
+                trigger_name = "a trigger"
+            elseif(state.c.shot_type == "death_trigger") then
+                trigger_name = "an expiration trigger"
+            else
+                trigger_name = "an unknown trigger type"
+            end
+            GuiTooltip(gui, state.c.parent_projectile.." with "..trigger_name, description)
+
+            z_set_next_relative(gui, -1.0)
+            local image = base_dir.."files/ui_gfx/"..state.c.shot_type..".png"
+            local im_w, im_h = GuiGetImageDimensions(gui, image, 0.5)
+            GuiImage(gui, get_id(), base_x-0.5*im_w-3, base_y-0.5*im_h-3, image, 1, 0.5)
+        end
     end
+    state.width = width
+    state.height = height
     return width, height
 end
 
@@ -1240,6 +1260,8 @@ function OnWorldPostUpdate()
 
     GuiStartFrame(gui)
     GuiOptionsAdd(gui, GUI_OPTION.NoPositionTween);
+    global_interactive = not GameGetIsGamepadConnected()
+    set_interactive(true)
     start_gui(gui)
 
     mx, my = DEBUG_GetMouseWorld()
@@ -1252,6 +1274,10 @@ function OnWorldPostUpdate()
     local cy = cy-ch/2
 
     gw, gh = GuiGetScreenDimensions(gui)
+    bound_x_min = 0
+    bound_y_min = 0
+    bound_x_max = gw
+    bound_y_max = gh
     -- GamePrint("screen dimensions: ("..gw..", "..gh..")")
     -- GamePrint("camera dimensions: ("..cw..", "..ch..")")
 

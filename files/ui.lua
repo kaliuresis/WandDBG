@@ -2,6 +2,12 @@ mx = 0
 my = 0
 gx = 0
 gy = 0
+
+bound_x_min = 0
+bound_y_min = 0
+bound_x_max = 0
+bound_y_max = 0
+
 local drag_mx = 0
 local drag_my = 0
 
@@ -60,13 +66,35 @@ function z_set_relative(gui, z)
 end
 
 interactive = true
+global_interactive = true
 function set_interactive(gui, new_interactive)
     interactive = new_interactive
-    if(interactive) then
+    if(interactive and global_interactive) then
         GuiOptionsRemove(gui, GUI_OPTION.NonInteractive)
     else
         GuiOptionsAdd(gui, GUI_OPTION.NonInteractive)
     end
+end
+
+local last_widget_hidden = false
+local last_widget_x = 0
+local last_widget_y = 0
+local last_widget_width = 0
+local last_widget_height = 0
+
+function get_previous_widget_info_bounded(gui)
+    if(last_widget_hidden) then
+        return false, false, false, last_widget_x, last_widget_y, last_widget_width, last_widget_height
+    end
+    local clicked, right_clicked, hovered, x, y, width, height = GuiGetPreviousWidgetInfo(gui)
+    if(inner_window_hovered and not other_window_blocking and (clicked or right_clicked)) then
+        window_active = true
+    elseif(not inner_window_hovered or not interactive or other_window_blocking) then
+        clicked = false
+        right_clicked = false
+        hovered = false
+    end
+    return clicked, right_clicked, hovered, x, y, width, height
 end
 
 function get_previous_widget_info(gui)
@@ -79,6 +107,45 @@ function get_previous_widget_info(gui)
         hovered = false
     end
     return clicked, right_clicked, hovered, x, y, width, height
+end
+
+function gui_image_bounded(gui, id, x, y, sprite_filename, alpha, scale, scale_y, rotation, rect_animation_playback_type, rect_animation_name)
+    -- default values
+    alpha = alpha or 1
+    scale = scale or 1
+    scale_y = scale_y or 0
+    rotation = rotation or 0
+    rect_animation_playback_type = rect_animation_playback_type or GUI_RECT_ANIMATION_PLAYBACK.PlayToEndAndHide
+    rect_animation_name = rect_animation_name or ""
+
+    local y_scale = scale_y == 0 and scale or scale_y
+
+    bound_x_min = bound_x_min or 0
+    bound_y_min = bound_y_min or 0
+    bound_x_max = bound_x_max or gw
+    bound_y_max = bound_y_max or gh
+
+    local c = math.cos(rotation)
+    local s = math.sin(rotation)
+    local w, h = GuiGetImageDimensions(gui, sprite_filename)
+    w = w*scale
+    h = h*y_scale
+    local x_min = x + math.min(w*c, 0) + math.min(-h*s, 0)
+    local y_min = y + math.min(h*c, 0) + math.min(w*s, 0)
+    local x_max = x + math.max(w*c, 0) + math.max(-h*s, 0)
+    local y_max = y + math.max(h*c, 0) + math.max(w*s, 0)
+
+    if(bound_x_min <= x_max and x_min <= bound_x_max
+       and bound_y_min <= y_max and y_min <= bound_y_max) then
+        GuiImage(gui, id, x, y, sprite_filename, alpha, scale, scale_y, rotation, rect_animation_playback_type, rect_animation_name)
+        last_widget_hidden = false
+    else
+        last_widget_hidden = true
+        last_widget_x = x
+        last_widget_y = y
+        last_widget_width = w
+        last_widget_height = h
+    end
 end
 
 function draw_line(gui, x1, y1, x2, y2, thickness, color, alpha, end_spacing, arrow_size, arrow_pos)
@@ -95,8 +162,8 @@ function draw_line(gui, x1, y1, x2, y2, thickness, color, alpha, end_spacing, ar
     dy = dy/length
     local rotation = math.atan2(-dx, dy)
     local x_off, y_off = complexx(-0.5*thickness, 0.5*thickness, dx, dy)
-    GuiImage(gui, get_id(), x1+dx*end_spacing+x_off, y1+dy*end_spacing+y_off, sprite,
-             alpha, thickness, length+0.5*thickness-2*end_spacing, rotation)
+    gui_image_bounded(gui, get_id(), x1+dx*end_spacing+x_off, y1+dy*end_spacing+y_off, sprite,
+                      alpha, thickness, length+0.5*thickness-2*end_spacing, rotation)
 
     if(arrow_size) then
         local x0 = lerp(x1, x2, arrow_pos)+dx*arrow_size/2
@@ -180,7 +247,8 @@ function make_window(base_id, base_x, base_y, width, height, show, title)
                     show = ModSettingGet(mod_name.."."..base_id.."_show"),
                     hovered_frames=0,
                     x_scroll = 0,
-                    x_scroll_target = 0}
+                    x_scroll_target = 0,
+                    y_scroll = 0}
     if(window.show == nil) then
         window.show = show
     end
@@ -269,26 +337,25 @@ function start_window(gui, window, order)
         height = height-8
     end
 
+    -- local box_x0 = window.x+4 +20-2
+    -- local box_y0 = window.y+20+drag_bar_height-2+4
+    -- local box_x1 = window.x+4 +width-8-2 - 20
+    -- local box_y1 = box_y0+height-40
+    -- draw_line(gui, box_x0, box_y0, box_x1, box_y0, 0.5)
+    -- draw_line(gui, box_x1, box_y1, box_x1, box_y0, 0.5)
+    -- draw_line(gui, box_x1, box_y1, box_x0, box_y1, 0.5)
+    -- draw_line(gui, box_x0, box_y0, box_x0, box_y1, 0.5)
+
     GuiOptionsAdd(gui, GUI_OPTION.Layout_NoLayouting)
     GuiBeginScrollContainer(gui, get_id(window.id), window.x, window.y, width, window.height, false)
     z_set_next_relative(gui, -1.0)
     GuiText(gui, window.x, window.y-2, window.title)
     GuiOptionsRemove(gui, GUI_OPTION.Layout_NoLayouting)
     z_set_next_relative(gui, 0.5)
-    if(grabbed ~= nil) then
-        GuiOptionsAdd(gui, GUI_OPTION.NonInteractive)
-    else
-        GuiOptionsRemove(gui, GUI_OPTION.NonInteractive)
-    end
+    set_interactive(grabbed == nil)
     GuiBeginScrollContainer(gui, get_id(window.id.."inner"), 0, drag_bar_height-2, width-8-2, height, true)
-    GuiOptionsRemove(gui, GUI_OPTION.NonInteractive)
     max_x = 0
     max_y = 0
-    if(not other_window_blocking) then
-        set_interactive(gui, true)
-    else
-        set_interactive(gui, false)
-    end
 
     local lx = window.x-1
     local ly = window.y+drag_bar_height-2-1
@@ -296,10 +363,28 @@ function start_window(gui, window, order)
     local uy = window.y+drag_bar_height+height+6
     inner_window_hovered = (lx <= mx and mx < ux and ly <= my and my < uy)
 
-    local clicked, right_clicked, hovered, x, y, width, height = GuiGetPreviousWidgetInfo(gui)
+    set_interactive(gui, not other_window_blocking)
+
+    local clicked, right_clicked, hovered, sx, sy, swidth, sheight = GuiGetPreviousWidgetInfo(gui)
     if(not other_window_blocking and (clicked or right_clicked)) then
         window_active = true
     end
+
+    local dot_sprite = base_dir .. "files/ui_gfx/line_dot_white.png"
+    GuiImage(gui, get_id(), 0, 0, dot_sprite, 0, 1, 0, 0)
+    local _, __, ___, x0, y0, w0, h0 = GuiGetPreviousWidgetInfo(gui)
+    scroll_y = (window.y+drag_bar_height-2)-y0+4
+
+    local margin_x = 3
+    local margin_y = 3
+    -- local margin_x = -20
+    -- local margin_y = -20
+    bound_x_min = -margin_x-2
+    bound_y_min = scroll_y - margin_y
+    bound_x_max = width-8-2 + margin_x
+    bound_y_max = scroll_y + height + margin_y
+
+    window.y_scroll = scroll_y
 
     return true
 end
@@ -310,6 +395,12 @@ function extend_max_bound(x, y)
 end
 
 function end_window(gui, window, order)
+    bound_x_min = 0
+    bound_y_min = 0
+    bound_x_max = gw
+    bound_y_max = gh
+    set_interactive(true)
+
     if(not window.show) then return end
     GuiLayoutEnd(gui, 0, 0, true, 0, 0)
     GuiEndScrollContainer(gui)
