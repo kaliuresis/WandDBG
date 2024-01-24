@@ -29,80 +29,101 @@ function complexx(ar, ai, br, bi)
     return ar*br-ai*bi, ar*bi+ai*br
 end
 
-function comma_multiplicity_list_add(list, new_element)
-    --NOTE: this can fail if elements can contain a * character, or if they can be substrings of each other
-    -- but this is fine since it's only used for filenames
-    local i, j = string.find(list, new_element)
-    if(i ~= nil) then
-        local  pre = string.sub(list, 1, j)
-        local post = string.sub(list, j+1)
-        local n = 1
-        local i, j = string.find(post, "%*%d+")
-        if(i==1) then
-            n = tonumber(string.sub(post,2,j))
-            post = string.sub(post,j+1)
-        end
-        list = pre.."*"..(n+1)..post
-        return list
+function copy_table(t)
+    local out = {}
+    for i, a in pairs(t) do
+        -- table.insert(out, a)
+        out[i] = a
     end
-    list = list..new_element..";"
-    return list
+    return out
 end
 
-function comma_multiplicity_list_iter(list)
-    return function()
-        local mult_i, mult_j = string.find(list, "%*%d+")
-        local comma_i, comma_j = string.find(list, ";")
-        if(not comma_i) then
+function projectile_list_add(list, element)
+    local i = projectile_table[element].i or 1
+    for j = 1,#list,2 do
+        if(list[j] == i) then
+            list[j+1] = list[j+1]+1
             return
         end
-        local n = 1
-        local item_end = comma_i
-        if(mult_i~=nil and mult_i < comma_i) then
-            n = tonumber(string.sub(list, mult_i+1, mult_j))
-            item_end = mult_i
-        end
-        local item = string.sub(list, 1, item_end-1)
-        list = string.sub(list, comma_j+1)
-        -- GamePrint(item.." x "..n)
-        return item, n
     end
+    table.insert(list, i)
+    table.insert(list, 1)
 end
 
-function format_comma_list(text)
-    local counts = {}
-    for item in string.gmatch(text, "[^ ,]+") do
-        counts[item] = (counts[item] or 0)+1
-    end
-    local formatted = ""
-    for i, n in pairs(counts) do
-        formatted = formatted..i
-        if(n ~= 1) then
-            formatted = formatted.." (x"..n..")"
-        end
-        formatted = formatted..", "
-    end
-    return formatted
-end
+-- function comma_multiplicity_list_add(list, new_element)
+--     --NOTE: this can fail if elements can contain a * character, or if they can be substrings of each other
+--     -- but this is fine since it's only used for filenames
+--     local i, j = string.find(list, new_element)
+--     if(i ~= nil) then
+--         local  pre = string.sub(list, 1, j)
+--         local post = string.sub(list, j+1)
+--         local n = 1
+--         local i, j = string.find(post, "%*%d+")
+--         if(i==1) then
+--             n = tonumber(string.sub(post,2,j))
+--             post = string.sub(post,j+1)
+--         end
+--         list = pre.."*"..(n+1)..post
+--         return list
+--     end
+--     list = list..new_element..";"
+--     return list
+-- end
 
-function make_format_comma_list_with_images(get_image)
-    return function(text)
-        local counts = {}
-        for item in string.gmatch(text, "[^ ,]+") do
-            counts[item] = (counts[item] or 0)+1
-        end
-        local formatted = {}
-        for i, n in pairs(counts) do
-            table.insert(formatted, {get_image(i), i})
-            if(n ~= 1) then
-                table.insert(formatted, "x"..n.." ")
-            else
-                table.insert(formatted, " ")
-            end
-        end
-        return formatted
-    end
-end
+-- function comma_multiplicity_list_iter(list)
+--     return function()
+--         local mult_i, mult_j = string.find(list, "%*%d+")
+--         local comma_i, comma_j = string.find(list, ";")
+--         if(not comma_i) then
+--             return
+--         end
+--         local n = 1
+--         local item_end = comma_i
+--         if(mult_i~=nil and mult_i < comma_i) then
+--             n = tonumber(string.sub(list, mult_i+1, mult_j))
+--             item_end = mult_i
+--         end
+--         local item = string.sub(list, 1, item_end-1)
+--         list = string.sub(list, comma_j+1)
+--         -- GamePrint(item.." x "..n)
+--         return item, n
+--     end
+-- end
+
+-- function format_comma_list(text)
+--     local counts = {}
+--     for item in string.gmatch(text, "[^ ,]+") do
+--         counts[item] = (counts[item] or 0)+1
+--     end
+--     local formatted = ""
+--     for i, n in pairs(counts) do
+--         formatted = formatted..i
+--         if(n ~= 1) then
+--             formatted = formatted.." (x"..n..")"
+--         end
+--         formatted = formatted..", "
+--     end
+--     return formatted
+-- end
+
+-- function make_format_comma_list_with_images(get_image)
+--     return function(text)
+--         local counts = {}
+--         for item in string.gmatch(text, "[^ ,]+") do
+--             counts[item] = (counts[item] or 0)+1
+--         end
+--         local formatted = {}
+--         for i, n in pairs(counts) do
+--             table.insert(formatted, {get_image(i), i})
+--             if(n ~= 1) then
+--                 table.insert(formatted, "x"..n.." ")
+--             else
+--                 table.insert(formatted, " ")
+--             end
+--         end
+--         return formatted
+--     end
+-- end
 
 function get_projectile_icon(entity_filename)
     local action = projectile_table[entity_filename]
@@ -123,11 +144,14 @@ end
 
 function format_projectiles(list)
     local formatted = {}
-    for item, n in comma_multiplicity_list_iter(list) do
+    for j = 1,#list,2 do
+        local e = list[j]
+        local n = list[j+1]
+        local item = projectile_list[e]
         table.insert(formatted, {get_projectile_icon(item), item})
         if(n ~= 1) then
             table.insert(formatted, "x"..n.." ")
-        else
+        elseif(last_e) then
             table.insert(formatted, " ")
         end
     end
@@ -136,7 +160,7 @@ end
 
 function format_cast_state_list(list)
     local formatted = {}
-    for identifier, n in comma_multiplicity_list_iter(list[1]) do
+    for identifier, n in pairs(list) do
         -- local action_id = string.match(identifier, "[^:]*")
         local action_id = string.match(identifier, "[^{]*")
         local items = string.sub(identifier, #action_id+2,-2)

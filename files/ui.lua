@@ -352,7 +352,7 @@ function start_window(gui, window, order)
     GuiText(gui, window.x, window.y-2, window.title)
     GuiOptionsRemove(gui, GUI_OPTION.Layout_NoLayouting)
     z_set_next_relative(gui, 0.5)
-    set_interactive(grabbed == nil)
+    set_interactive(gui, grabbed == nil)
     GuiBeginScrollContainer(gui, get_id(window.id.."inner"), 0, drag_bar_height-2, width-8-2, height, true)
     max_x = 0
     max_y = 0
@@ -399,7 +399,7 @@ function end_window(gui, window, order)
     bound_y_min = 0
     bound_x_max = gw
     bound_y_max = gh
-    set_interactive(true)
+    set_interactive(gui, true)
 
     if(not window.show) then return end
     GuiLayoutEnd(gui, 0, 0, true, 0, 0)
@@ -582,7 +582,7 @@ function draw_windows(gui)
         table.insert(windows, 1, table.remove(windows, top_window))
         top_window = -1
     end
-    set_interactive(true)
+    set_interactive(gui, true)
 end
 
 function reset_windows()

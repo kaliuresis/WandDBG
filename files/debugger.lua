@@ -130,44 +130,26 @@ init_debugger = function()
         end
     end
 
-    function copy_table(t)
-        local out = {}
-        for _, a in ipairs(t) do
-            table.insert(out, a)
-        end
-        return out
-    end
-
     cast_state_list_metatable = {
-        __concat = function(a,b)
+        __concat = function(list,b)
             local action_id = ""
             if(current_node == nil) then
                 action_id = "from_wand"
-                -- a[1] = a[1].."from_wand:"..b
             else
                 action_id = current_node.action.id
-                -- a[1] = a[1]..current_node.action.id..":"..b
             end
 
             local identifier = action_id.."{"..b.."}"
-            a[1] = comma_multiplicity_list_add(a[1], identifier)
+            list[identifier] = (list[identifier] or 0)+1
 
-            -- for i, e in ipairs(a) do
-            --     if(e.items==b and e.action_id==action_id) then
-            --         e.count = e.count+1
-            --         return a
-            --     end
-            -- end
-            -- table.insert(a, {items=b, action_id=action_id, count=1})
-            return a
+            return list
         end,
     }
     function new_cast_state_list()
-        local list = {""}
+        local list = {}
         setmetatable(list, cast_state_list_metatable)
         return list
     end
-
 
     local cast_state_maybe_changed = false
     function make_snapshot(event_type, info, copy_c)
@@ -200,7 +182,7 @@ init_debugger = function()
 
     BeginProjectile = function(entity_filename)
         current_projectile = entity_filename
-        c.projectiles = comma_multiplicity_list_add(c.projectiles, entity_filename)
+        projectile_list_add(c.projectiles, entity_filename)
     end
     EndProjectile = function()
         current_projectile = ""
@@ -354,7 +336,7 @@ init_debugger = function()
             original_action = action_reset
         end
         action.original_action = action.original_action or original_action
-        action.action = function( recursion_level, iteration )
+        action.action = function( recursion_level, iteration, ...)
             local node = {parent = current_node, children = {}, action = action, rec = recursion_level, iter = iteration, explanation=current_explanation}
             if(current_explanation == "draw") then
                 node.draw_step = draw_step
@@ -370,7 +352,7 @@ init_debugger = function()
             make_snapshot("action", {recursion_level=recursion_level, iteration=iteration})
             cast_state_maybe_changed = true
             node.event_index = #cast_history
-            local ret = action.original_action(recursion_level, iteration)
+            local ret = action.original_action(recursion_level, iteration, unpack(arg or {}))
             make_snapshot("action_end", {recursion_level=recursion_level, iteration=iteration}, true)
             node.end_event_index = #cast_history
             current_node = node.parent
@@ -502,18 +484,17 @@ init_debugger = function()
         local original_ConfigGunActionInfo_Copy = ConfigGunActionInfo_Copy
 
         ConfigGunActionInfo_Init = function (value)
-            value.projectiles = ""
+            value.projectiles = {}
             original_ConfigGunActionInfo_Init( value )
             value.extra_entities = new_cast_state_list()
         end
 
         ConfigGunActionInfo_Copy = function(source, dest)
-            dest.projectiles = source.projectiles
+            dest.projectiles = copy_table(source.projectiles)
             original_ConfigGunActionInfo_Copy(source, dest)
             dest.extra_entities = copy_table(source.extra_entities)
             setmetatable(dest.extra_entities, cast_state_list_metatable)
         end
-
 
         local original_GameGetFrameNum                          = GameGetFrameNum
         local original_EntityGetWithTag                         = EntityGetWithTag
@@ -629,7 +610,7 @@ init_debugger = function()
         EntityLoad                               = function(entity_id) end
         EntityGetAllChildren                     = function(entity_id) if(entity_id) then return entity_id.children end end
         EntityGetName                            = function(entity_id) if(entity_id) then return entity_id.name end end
-        EntityHasTag                             = function(entity_id, tag) if(entity_id) then return string.find(","..entity_id.tags, ","..tag..",") end end
+        EntityHasTag                             = function(entity_id, tag) if(entity_id) then return string.find(","..(entity_id.tags or ""), ","..tag..",") end end
         ComponentGetValue2                       = function(component_id, variable_name) return component_id[variable_name] end
         ComponentSetValue2                       = function(component_id, variable_name, value) component_id[variable_name] = value end
 
@@ -677,7 +658,7 @@ init_debugger = function()
             table.insert(action_trees, current_node)
             cast_number = cast_number+1
 
-            local old_table_insert = table.insert
+            local old_table_insert = table.insert --TODO: check if this does anything?
             playing_permanent_card = true
             current_explanation = "always_cast"
             for ac, action in ipairs(always_casts) do

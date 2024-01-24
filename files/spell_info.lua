@@ -14,6 +14,7 @@ function SPELL_INFO.get_spell_info()
 
     local action_table = {}
     local projectile_table = {}
+    local projectile_list = {"ERROR"}
     local extra_entity_table = {}
 
     local original_GlobalsGetValue = GlobalsGetValue
@@ -33,28 +34,40 @@ function SPELL_INFO.get_spell_info()
 
     add_projectile = function(entity_filename)
         if(current_action ~= nil) then
-            if(projectile_table[entity_filename] == nil) then projectile_table[entity_filename] = {} end
+            if(projectile_table[entity_filename] == nil) then
+                table.insert(projectile_list, entity_filename)
+                projectile_table[entity_filename] = {i = #projectile_list}
+            end
             projectile_table[entity_filename].normal = current_action
         end
     end
 
     add_projectile_trigger_timer = function(entity_filename)
         if(current_action ~= nil) then
-            if(projectile_table[entity_filename] == nil) then projectile_table[entity_filename] = {} end
+            if(projectile_table[entity_filename] == nil) then
+                table.insert(projectile_list, entity_filename)
+                projectile_table[entity_filename] = {i = #projectile_list}
+            end
             projectile_table[entity_filename].timer = current_action
         end
     end
 
     add_projectile_trigger_hit_world = function(entity_filename)
         if(current_action ~= nil) then
-            if(projectile_table[entity_filename] == nil) then projectile_table[entity_filename] = {} end
+            if(projectile_table[entity_filename] == nil) then
+                table.insert(projectile_list, entity_filename)
+                projectile_table[entity_filename] = {i = #projectile_list}
+            end
             projectile_table[entity_filename].trigger = current_action
         end
     end
 
     add_projectile_trigger_death = function(entity_filename)
         if(current_action ~= nil) then
-            if(projectile_table[entity_filename] == nil) then projectile_table[entity_filename] = {} end
+            if(projectile_table[entity_filename] == nil) then
+                table.insert(projectile_list, entity_filename)
+                projectile_table[entity_filename] = {i = #projectile_list}
+            end
             projectile_table[entity_filename].death_trigger = current_action
         end
     end
@@ -93,5 +106,5 @@ function SPELL_INFO.get_spell_info()
     -- OnActionPlayed                = original_OnActionPlayed
     Reflection_RegisterProjectile = original_Reflection_RegisterProjectile
 
-    return action_table, projectile_table, extra_entity_table
+    return action_table, projectile_table, projectile_list, extra_entity_table
 end

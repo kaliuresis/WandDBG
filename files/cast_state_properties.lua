@@ -61,7 +61,7 @@ cast_state_properties = {
     {name = "physics_impulse_coeff", get = function(c) return c.physics_impulse_coeff end, default = 0},
     {name = "lifetime_add", get = function(c) return c.lifetime_add end, default = 0},
     {name = "sprite", get = function(c) return c.sprite end, default = ""},
-    {name = "extra_entities", get = function(c) return c.extra_entities end, default = "", format=format_cast_state_list},
+    {name = "extra_entities", get = function(c) return c.extra_entities end, default = {}, format=format_cast_state_list},
     {name = "game_effect_entities", get = function(c) return c.game_effect_entities end, default = "", format=format_comma_list},
     {name = "sound_loop_tag", get = function(c) return c.sound_loop_tag end, default = ""},
     {name = "projectile_file", get = function(c) return c.projectile_file end, default = ""},

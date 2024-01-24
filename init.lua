@@ -9,7 +9,7 @@ dofile_once(base_dir .. "files/ui.lua");
 local gui = GuiCreate()
 
 debug_wand = nil
-action_table, projectile_table, extra_entity_table = nil
+action_table, projectile_table, projectile_list, extra_entity_table = nil
 -- actions_list, projectile_table, extra_entity_table = {}, {}, {}
 dofile_once(base_dir .. "files/cast_state_properties.lua");
 
@@ -756,7 +756,7 @@ function draw_cast_state(state, x, y)
     if(not cast_state_collapsed[state.c]) then
         for i, p in ipairs(cast_state_properties) do
             local raw_value = p.get(c)
-            if(raw_value ~= nil and (type(raw_value) ~= "table" or #raw_value > 0) and raw_value ~= p.default) then
+            if(raw_value ~= nil and raw_value ~= p.default) then
                 local value
                 if(p.format ~= nil) then
                     value = p.format(raw_value)
@@ -1181,10 +1181,12 @@ function reset_cast_except_action_sprites()
 end
 
 function OnWorldPostUpdate()
+    -- GamePrint("memory: "..gcinfo())
+
     -- we wait to initialize these for compatibility with mods (*cough* Goki's things *cough*)
     -- that wait until OnModPostInit to append some stuff to gun_actions.lua
     if(not debug_wand) then
-        action_table, projectile_table, extra_entity_table = SPELL_INFO.get_spell_info()
+        action_table, projectile_table, projectile_list, extra_entity_table = SPELL_INFO.get_spell_info()
         debug_wand = init_debugger()
     end
 
@@ -1261,7 +1263,7 @@ function OnWorldPostUpdate()
     GuiStartFrame(gui)
     GuiOptionsAdd(gui, GUI_OPTION.NoPositionTween);
     global_interactive = not GameGetIsGamepadConnected()
-    set_interactive(true)
+    set_interactive(gui, true)
     start_gui(gui)
 
     mx, my = DEBUG_GetMouseWorld()
