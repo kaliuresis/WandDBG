@@ -83,6 +83,21 @@ function SPELL_INFO.get_spell_info()
         ConfigGunShotEffects_Init(shot_effects)
         current_action = action
         action.action()
+
+        if(action.related_projectiles) then
+            for j,entity_filename in ipairs(action.related_projectiles) do
+                if(j%2 == 1) then
+                    if(projectile_table[entity_filename] == nil) then
+                        table.insert(projectile_list, entity_filename)
+                        projectile_table[entity_filename] = {i = #projectile_list}
+                    end
+                    if(projectile_table[entity_filename].normal == nil) then
+                        projectile_table[entity_filename].normal = current_action
+                    end
+                end
+            end
+        end
+
         action.c = {}
         ConfigGunActionInfo_Copy(c, action.c)
 

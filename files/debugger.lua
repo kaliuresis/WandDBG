@@ -183,6 +183,16 @@ init_debugger = function()
     BeginProjectile = function(entity_filename)
         current_projectile = entity_filename
         projectile_list_add(c.projectiles, entity_filename)
+
+        local action = projectile_table[entity_filename]
+        if(action
+           and (action.normal==nil or action.normal.id ~= current_node.action.id)
+           and (action.timer==nil or action.timer.id ~= current_node.action.id)
+           and (action.trigger==nil or action.trigger.id ~= current_node.action.id)
+           and (action.death_trigger==nil or action.death_trigger.id ~= current_node.action.id)) then
+            current_node.flavor = current_node.flavor or {}
+            projectile_list_add(current_node.flavor, entity_filename)
+        end
     end
     EndProjectile = function()
         current_projectile = ""

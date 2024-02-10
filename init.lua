@@ -559,23 +559,34 @@ end
 
 function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
     local spline_offset = 0
+    local node_height = 0
     if(tree.action ~= nil) then
         local sprite = tree.action.sprite
         local bg_sprite = get_bg_sprite(tree.action.type)
         local im_w, im_h = GuiGetImageDimensions(gui, bg_sprite, scale)
+        z_set_next_relative(gui, 0.5)
         gui_image_bounded(gui, get_id("node_background"..tostring(tree)), x-im_w/2, y-im_h/2, bg_sprite,
                                                       1.0, scale, 0, 0)
-        local clicked, right_clicked, hovered, text_x, text_y, width, height = get_previous_widget_info_bounded(gui)
+        local clicked, right_clicked, hovered, text_x, text_y, bwidth, bheight = get_previous_widget_info_bounded(gui)
 
         local foreground_scale = scale
         if(hovered) then
             foreground_scale = 1.5*foreground_scale
         end
         im_w, im_h = GuiGetImageDimensions(gui, sprite, foreground_scale)
+        z_set_next_relative(gui, 0.25)
         gui_image_bounded(gui, get_id("node_foreground"..tostring(tree)), x-im_w/2, y-im_h/2, sprite,
                  1.0, foreground_scale, 0, 0)
         if(clicked) then
             current_i_target = tree.event_index
+        end
+
+        if(tree.flavor) then
+            local fscale = 0.75
+            local fx = x-im_w*(0.5+0.5*fscale)
+            local fy = y+im_h*(0.5-0.5*fscale)
+            draw_text_image_list(format_projectiles(tree.flavor), fx, fy, fscale*scale, -im_h*(1.0-fscale)*0.5)
+            node_height = node_height+im_h*(0.5)
         end
 
         if(tree.recursion_limited) then
@@ -587,8 +598,8 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
         -- GuiOptionsAddForNextWidget(gui, GUI_OPTION.Align_Left)
         GuiOptionsAddForNextWidget(gui, GUI_OPTION.Align_HorizontalCenter)
         GuiText(gui, x, y-5, tree.cast_number)
-        local clicked, right_clicked, hovered, text_x, text_y, width, height = get_previous_widget_info(gui)
-        spline_offset = width/2-3
+        local clicked, right_clicked, hovered, text_x, text_y, twidth, theight = get_previous_widget_info(gui)
+        spline_offset = twidth/2-3
     end
 
     if(parent_x ~= nil and parent_y ~= nil) then
@@ -614,8 +625,8 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
         return tree.width, tree.height
     end
 
-    local width = x_spacing
     local height = 0
+    local width = x_spacing
     local max_child_width = 0
     local previous_width = 0
     local number_identical = 1
@@ -677,6 +688,7 @@ function draw_node(tree, x_spacing, y_spacing, scale, x, y, parent_x, parent_y)
         width = 8+max_child_width
         height = y_spacing
     end
+    height = math.max(y_spacing+node_height, height)
     tree.width = width
     tree.height = height
     return width, height
@@ -707,21 +719,23 @@ function draw_trees(base_x, base_y, min_height)
     return y-base_y
 end
 
-function draw_text_image_list(value, x, y)
+function draw_text_image_list(value, x, y, scale, text_offset)
+    scale = scale or 0.5
+    text_offset = text_offset or 0
     local width = 0
     if(type(value) == "string") then
         width = GuiGetTextDimensions(gui, value)
-        GuiText(gui, x, y, value)
+        GuiText(gui, x, y+text_offset, value)
     elseif(type(value) == "table") then
         for i,t in ipairs(value) do
             local item_width = 0
             local item_height = 0
             if(type(t) == "string") then
                 item_width = GuiGetTextDimensions(gui, t)
-                GuiText(gui, x, y, t)
+                GuiText(gui, x, y+text_offset, t)
             else
-                item_width, item_height = GuiGetImageDimensions(gui, t[1], 0.5)
-                gui_image_bounded(gui, get_id, x, y+1, t[1], 1, 0.5)
+                item_width, item_height = GuiGetImageDimensions(gui, t[1], scale)
+                gui_image_bounded(gui, get_id, x, y+1, t[1], 1, scale)
                 GuiTooltip(gui, t[2], "")
                 item_width = item_width+1
             end

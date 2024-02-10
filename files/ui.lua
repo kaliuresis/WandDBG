@@ -51,7 +51,7 @@ function start_gui(gui)
     gui_id = 0
 end
 
-local z_global = 0
+z_global = 0
 function z_set_global(gui, z)
     z_global = z
     GuiZSet(gui, z)

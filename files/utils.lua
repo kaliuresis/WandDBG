@@ -39,7 +39,8 @@ function copy_table(t)
 end
 
 function projectile_list_add(list, element)
-    local i = projectile_table[element].i or 1
+    local entry = projectile_table[element]
+    local i = entry and entry.i or 1
     for j = 1,#list,2 do
         if(list[j] == i) then
             list[j+1] = list[j+1]+1
@@ -124,6 +125,23 @@ end
 --         return formatted
 --     end
 -- end
+
+function get_projectile_action(entity_filename)
+    local action = projectile_table[entity_filename]
+    if(action == nil) then
+        return nil
+    end
+    if(action.normal ~= nil) then
+        return action.normal
+    elseif(action.timer ~= nil) then
+        return action.timer
+    elseif(action.trigger ~= nil) then
+        return action.trigger
+    elseif(action.death_trigger ~= nil) then
+        return action.death_trigger
+    end
+    return nil
+end
 
 function get_projectile_icon(entity_filename)
     local action = projectile_table[entity_filename]
